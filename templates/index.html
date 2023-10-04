@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<style>
+    * {
+        box-sizing: border-box;
+    }
+    .row {
+        display: flex;
+    }
+    .column {
+        flex: 24.9%;
+        padding: 2px;
+    }
+    div {
+        text-align: center;
+    }
+    h1 {
+        text-align: center;
+    }
+    h2 {
+        text-align:center;
+    }
+    form {
+        display: inline;
+    }
+</style>
+
+<body>
+    <h1>Human feedback</h1>
+    <div class="row">
+        <div class="column">
+            <h2>Previous Environment</h2>
+            <img src='data:image/png;base64,{{img1}}' style="width:75%"/>
+        </div>
+        <div class="column">
+            <h2>Environment</h2>
+            <img src='data:image/png;base64,{{img2}}' style="width:75%"/>
+        </div>
+    </div> 
+    <h2>Do you agree with the agents action?</h2>
+    <div class="buttons">
+        <form action="/dontagree" method="post">
+            <button type="submit">Don't Agree</button>
+        </form>
+        <form action="/agree" method="post">
+            <button type="submit">Agree</button>
+        </form>
+    </div>
+    <div class="buttons"> 
+        <form action="/previous" method="post">
+            <button type="submit">Previous</button>
+        </form>
+        <form action="/next" method="post">
+            <button type="submit">Next</button>
+        </form>
+    </div>
+</body>
+</html>

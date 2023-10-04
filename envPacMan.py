@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
 """ --------------------------------------------------------------------------
 Ghost - class
@@ -13,7 +14,7 @@ class ghost:
         
         self.P_change_direction = 0.5        
         return
-    
+
     def reset(self, x=[], y=[]):
         if x==[]:
             self.pos = self.init_pos
@@ -149,11 +150,33 @@ class env:
         self.ghost  = ghost(5,5, self.map)
         self.pellets = pellets([[3,3], [1,5]])        
 
+        self.obstacles = [[2, 2], [4, 3], [2, 4], [3, 2], [4, 2], [3, 4], [4, 4]]
         self.map_size_x = len(self.map[0]) - 2
         self.map_size_y = len(self.map) - 2
         self.num_pellets = self.pellets.number_remaining_pellets()
         return
-    
+
+    def plot(self):
+        fig, ax = plt.subplots(figsize = (5,5))
+        ax.set_aspect(1.0)
+        # Plot vertical lines
+        for i in range(1, self.map_size_x + 1):
+            ax.plot([1, self.map_size_x],[i, i],  color='black')
+        for i in range(1, self.map_size_y + 1):
+            ax.plot([i, i], [1, self.map_size_y], color='black')
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        for obstacle in self.obstacles:
+            plt.scatter(obstacle[0],obstacle[1],s = 200,c='k')
+
+        for pellet in self.pellets.pos_list:
+            plt.scatter(pellet[0],self.map_size_y+1-pellet[1],s = 100,c='r')
+
+        ax.scatter(self.pacman.pos[0], self.map_size_y+1-self.pacman.pos[1],s=400,c='y')
+        ax.scatter(self.ghost.pos[0], self.map_size_y+1-self.ghost.pos[0],s= 400,c='b')
+        return fig, ax
+
     def reset(self, random=False):
         if random:
             xlim = len(self.map[0])
@@ -239,10 +262,6 @@ class env:
         gDirIdx = np.argmax( np.array(['n', 's', 'e', 'w']) == self.ghost.dir )
         pPosIdx = (self.pacman.pos[0]-1) + (self.pacman.pos[1]-1)*self.map_size_x
         peltIdx = np.sum( self.pellets.valid * 2**np.arange( len(self.pellets.valid) ) )
-    
-        return np.asscalar( gPosIdx + 
-                            gDirIdx*(self.map_size_x*self.map_size_y) + 
-                            pPosIdx*(self.map_size_x*self.map_size_y) * 4 + 
-                            peltIdx*(self.map_size_x*self.map_size_y) * 4 *(self.map_size_x*self.map_size_y) )
-        
-        
+        return gPosIdx + gDirIdx*(self.map_size_x*self.map_size_y) + \
+               pPosIdx*(self.map_size_x*self.map_size_y) * 4 + \
+               peltIdx*(self.map_size_x*self.map_size_y) * 4 *(self.map_size_x*self.map_size_y)
