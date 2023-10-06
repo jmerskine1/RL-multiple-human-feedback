@@ -38,15 +38,6 @@
             <img src='data:image/png;base64,{{img2}}' style="width:75%"/>
         </div>
     </div> 
-    <h2>Do you agree with the agents action?</h2>
-    <div class="buttons">
-        <form action="/dontagree" method="post">
-            <button type="submit">Don't Agree</button>
-        </form>
-        <form action="/agree" method="post">
-            <button type="submit">Agree</button>
-        </form>
-    </div>
     <div class="buttons"> 
         <form action="/previous" method="post">
             <button type="submit">Previous</button>
@@ -55,5 +46,34 @@
             <button type="submit">Next</button>
         </form>
     </div>
+    <h2>What is your confidence that these action is the optimal?</h2>
+    <!-- <div class="buttons">
+        <form action="/dontagree" method="post">
+            <button type="submit">Don't Agree</button>
+        </form>
+        <form action="/agree" method="post">
+            <button type="submit">Agree</button>
+        </form>
+    </div> -->
+    <form action="/submit" method="post">
+        <div class="slidecontainer" id="slide_container_f">
+            <input type="checkbox" name="Checkbox1">North
+            <input type="range" min=0.0 max=1.0 value=0.0 class="slider" step="0.1"
+                id="myRange" name="Feedback1">
+            <input type="checkbox" name="Checkbox2">South
+            <input type="range" min=0.0 max=1.0 value=0.0 class="slider" step="0.1"
+                id="myRange" name="Feedback2">
+            <input type="checkbox" name="Checkbox3">East
+            <input type="range" min=0.0 max=1.0 value=0.0 class="slider" step="0.1"
+                id="myRange" name="Feedback3">
+            <input type="checkbox" name="Checkbox4">West
+            <input type="range" min=0.0 max=1.0 value=0.0 class="slider" step="0.1"
+                id="myRange" name="Feedback4">
+            <div>
+                <input type="submit" value="Submit">
+            </div>
+        </div>
+    </form>
+    
 </body>
 </html>

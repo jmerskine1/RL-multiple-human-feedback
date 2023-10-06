@@ -16,6 +16,8 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 import pandas as pd
 import numpy as np
 
+import werkzeug
+
 from envPacMan import env
 from agent import agent
 
@@ -23,7 +25,7 @@ store = RedisStore(redis.StrictRedis())
 app = Flask(__name__)
 KVSessionExtension(store, app)
 app.secret_key = "test"
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:////home/ah13558/Documents/taku_pacman/RL-multiple-human-feedback/result_database.sqlite"
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:////home/ah13558/Documents/taku_pacman/RL-Alex/result_database.sqlite"
 db = SQLAlchemy(app)
 
 
@@ -31,7 +33,7 @@ class annotations(db.Model):
     __tablename__ = 'annotations'
     sessionID = db.Column(db.String, primary_key=True)
     env = db.Column(db.Integer)
-    label = db.Column(db.Integer, unique=False)
+    feedback = db.Column(db.String, unique=False)
     action = db.Column(db.Integer, unique=False)
     def __repr__(self):
         return '<sessionID %r>' % self.sessionID
@@ -55,6 +57,7 @@ def index():
     algID   = 'tabQL_ps_Cest'
     agent_h  = agent(algID, environment.nStates(), len(environment.action_list()))
     action_list = environment.action_list()
+    print(action_list)
     action = 0
     ob = environment.st2ob()      # observation
     rw = 0                        # reward
@@ -89,44 +92,6 @@ def index():
     print(disp)
 
     return render_template("index.html", img1=data2, img2=data)
-
-
-@app.route('/dontagree', methods=['POST'])
-def dontagree():
-    if session['current_environment_idx'] != 0:
-        sessionID = session['uid']
-        idx = session['current_environment_idx']
-        env = session['environment_integer_list'][idx-1]
-        action = session['action_list'][session['current_action']]
-        entry = annotations(sessionID=str(sessionID), env=int(env), action=action, label=0)
-        db.session.add(entry)
-        db.session.commit()
-        data2 = session['environment_display_list'][session['current_environment_idx']-1]
-    else:
-        fig = plt.Figure(figsize=(5, 5))
-        data2 = base64EncodeFigure(fig)
-    return render_template("index.html",
-                           img1=data2,
-                           img2=session['current_environment'])
-
-
-@app.route('/agree', methods=['POST'])
-def agree():
-    if session['current_environment_idx'] != 0:
-        sessionID = session['uid']
-        idx = session['current_environment_idx']
-        env = session['environment_integer_list'][idx-1]
-        action = session['action_list'][session['current_action']]
-        entry = annotations(sessionID=str(sessionID), env=int(env), action=action, label=1)
-        db.session.add(entry)
-        db.session.commit()
-        data2 = session['environment_display_list'][session['current_environment_idx']-1]
-    else:
-        fig = plt.Figure(figsize=(5, 5))
-        data2 = base64EncodeFigure(fig)
-    return render_template("index.html",
-                           img1=data2,
-                           img2=session['current_environment'])
 
 
 @app.route('/next', methods=['POST'])
@@ -177,6 +142,31 @@ def previousFrame():
         data2 = base64EncodeFigure(fig2)
     else:
         data2 = session['environment_display_list'][session['current_environment_idx']-1]
+    return render_template("index.html",
+                           img1=data2,
+                           img2=session['current_environment'])
+
+
+@app.route('/submit', methods=['POST'])
+def submit():
+    feedback = [request.form['Feedback%d'%i] if request.form.get('Checkbox%d'%i) else
+                'None' for i in range(1,5)]
+    action_list = ['n', 's', 'e', 'w']
+    feedback = dict(map(lambda i,j : (i, j), action_list, feedback))
+    if session['current_environment_idx'] != 0:
+        sessionID = session['uid']
+        idx = session['current_environment_idx']
+        env = session['environment_integer_list'][idx-1]
+        action = session['action_list'][session['current_action']]
+        entry = annotations(
+            sessionID=str(sessionID), env=int(env), action=action,
+            feedback=str(feedback))
+        db.session.add(entry)
+        db.session.commit()
+        data2 = session['environment_display_list'][session['current_environment_idx']-1]
+    else:
+        fig = plt.Figure(figsize=(5, 5))
+        data2 = base64EncodeFigure(fig)
     return render_template("index.html",
                            img1=data2,
                            img2=session['current_environment'])
