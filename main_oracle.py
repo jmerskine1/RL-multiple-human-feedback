@@ -1,81 +1,84 @@
-import numpy as np
-
-import envPacMan as environment 
+import jax
+import jax.numpy as np
+from tqdm import tqdm
+import envPacMan
 from agent import agent
 
-from RLmon import RLmon
+from config import setup, environment, parameters
+from library.utilities import RLmon, save_results
+from library.learning_functions import tabQL_ps, tabQLgreedy
+
         
 # -----------------------------------------------------
-def main(algID   = 'tabQL_Cest_em_t2',  # Agent Algorithm
-         simInfo = '_tmp',              # Filename header
-         trial_count = 100,             # number of learning trial
-         episode_count = 2000,          # number of episodes to learn
-         max_steps = 500,               # max. number of steps in a episode
-         L  = np.array([1.0]),          # probability to give a feedback
-         C  = np.array([0.2])           # Human feedback confidence level
-         ):
 
-    print(f"start--{algID} {simInfo}")
-    dispON = False
+def main():
+    
+    dispON = setup['dispON']
+    print(f"start--{setup['algID']} {setup['simInfo']}")
     
     # prepare RL monitor module
-    legendStr = []
-    for n in range(len(C)):
-        legendStr.append('L={0},C={1}'.format(L[n], C[n]))
-    mon = RLmon(trial_count, episode_count, 1)
-    monC = RLmon(trial_count, episode_count, len(C))
-    monAlpha = RLmon(trial_count, episode_count, len(C))
-    monBeta  = RLmon(trial_count, episode_count, len(C))
+    monitors = {
+        'aveRW'   :RLmon(1),
+        'aveC'    :RLmon(len(setup['C'])),
+        'Alpha'   :RLmon(len(setup['C'])),
+        'Beta'    :RLmon(len(setup['C']))
+                }
     
-    env_h = environment.env()            
-    for k in range(trial_count):
+    pac_env = envPacMan.environment()
+       
+    for k in range(setup['trial_count']):
         print('trial: {0}'.format(k))
         
-        env_h.reset()
-        agent_h  = agent(algID, env_h.nStates(), len(env_h.action_list()))
+        pac_env.reset()
+        
+        agent_h  = agent(tabQL_ps)
         
         # Setup ORACLE
-        oracle_h = agent('tabQLgreedy', env_h.nStates(), len(env_h.action_list()))
+        oracle_h = agent(tabQLgreedy)
         oracle_h.load('learnedStates/pacman_tabQL_oracle.pkl')   # load pre-learned Q function    
-        oracle_h.alpha = 0                          # set learning rate to zero (no learning)
-        
-        action_list = env_h.action_list()
-        action = 0 
-        ob = env_h.st2ob()            # observation
+        oracle_h.alpha = 0                          # set learning rate to zero (no learning)    
+
+        action_list = list(environment['actions'].keys())
+        action = 0                    # default action
+        obs = pac_env.st2ob()          # observation
         rw = 0                        # reward
         totRW = 0                     # total reward in this episode
         done = False                  # episode completion flag
-        fb = np.ones(len(C)) * np.NaN # Human feedback
+        fb = np.ones(len(setup['C'])) * np.full((), -np.inf) # Human feedback
         
-        for i in range(episode_count):
+        for i in tqdm(range(setup['episode_count'])):
             
-            for j in range(max_steps):
+            for j in range(setup['max_steps']):
                 
                 if dispON:
+
                     print('action:{0}'.format(action_list[action]))
-                    d = env_h.display()
-                    for n in range(len(d)):
-                        print(d[n])
-                        
+                    pac_env.display()    
                     tmp = input('>>')
                     if tmp == 'stop':
                         dispON = False
         
                 # call agent
-                action = agent_h.act(action, ob, rw, done, fb, 0.5)
+                action = agent_h.act(obs, fb, rw, done)
+                
+                if done:
+                    agent_h.Cest_em()
+
                 # call oracle to get 'right' action
-                rightAction = oracle_h.act(action, ob, rw, done, fb, C)
+                rightAction = oracle_h.act(obs, fb, rw, done)
                     
                 # call environment
-                ob, rw, done = env_h.step(action_list[action])
+                obs, rw, done = pac_env.step(action)
                 
                 # 'human' feedback generation (by using ORACLE)
                 for trainerIdx in np.arange(len(fb)):
-                    if np.random.rand() < L[trainerIdx]:
-                        if np.random.rand() < C[trainerIdx]:
-                            fb[trainerIdx] = (action == rightAction)     # Right feedback
+                    if jax.random.uniform(parameters['key']) < setup['L'][trainerIdx]:
+                        if jax.random.uniform(parameters['key']) < setup['C'][trainerIdx]:
+                            fb = fb.at[trainerIdx].set(np.array_equal(action, rightAction))
+                            # fb[trainerIdx] = (action == rigßhtAction)     # Right feedback
                         else:
-                            fb[trainerIdx] = not (action == rightAction) # Wrong feedback
+                            fb = fb.at[trainerIdx].set(not(np.array_equal(action, rightAction)))
+                            # fb[trainerIdx] = not (action == rightAction) # Wrong feedback
                     else:
                         fb[trainerIdx] = np.NaN # no feedback
                 
@@ -85,48 +88,35 @@ def main(algID   = 'tabQL_Cest_em_t2',  # Agent Algorithm
                 # if done==True, call agent once more to learn 
                 # the final transition, then finish this episode.
                 if done:
-                    agent_h.act(action, ob, rw, done, fb, C)
+                    agent_h.act(obs, fb, rw, done)
                     break
             
             if i % 100 == 0:
                 print(f"{k}, {i}: Ce: {agent_h.Ce} \t total reward: {totRW}")
             
             # store result
-            mon.store(i, k, totRW)
-            monC.store(i, k, agent_h.Ce)
+            monitors['aveRW'].store(i, k, totRW)
+            monitors['aveC'].store(i, k, agent_h.Ce)
             if hasattr(agent_h, 'sum_of_right_feedback'):
                 # store VI algorithm parameters
-                monAlpha.store(i, k, agent_h.sum_of_right_feedback + agent_h.a)
-                monBeta.store(i, k,  agent_h.sum_of_wrong_feedback + agent_h.b)
+                monitors['Alpha'].store(i, k, agent_h.sum_of_right_feedback + agent_h.a)
+                monitors['Beta'].store(i, k,  agent_h.sum_of_wrong_feedback + agent_h.b)
             
             # Reset environment
-            env_h.reset()
+            pac_env.reset()
             agent_h.prev_obs = None
-            ob = env_h.st2ob()
+            obs = pac_env.st2ob()
             rw = 0
             totRW = 0
             done = False
                         
         # Clear agent class except the last trial
-        if k < trial_count-1:
+        if k < setup['trial_count']-1:
             del agent_h
             del oracle_h
 
     # Save results
-    fname = 'results/aveRW_' + str(algID) + str(simInfo)
-    mon.saveData(fname)
-    fname = 'results/aveC_' + str(algID) + str(simInfo)
-    monC.saveData(fname)
-    if hasattr(agent_h, 'sum_of_right_feedback'):
-        fname = 'results/aveAlpha_' + str(algID) + str(simInfo)
-        monAlpha.saveData(fname)
-        fname = 'results/aveBeta_' + str(algID) + str(simInfo)
-        monBeta.saveData(fname)
-        
-    #fname = 'results/plot_' + str(algID) + str(simInfo)
-    #mon.savePlot(fname)
-    
-    agent_h.save('learnedStates/pacman_' + str(algID))
+    save_results(monitors,agent_h)
 
 if __name__ == '__main__':
     main()

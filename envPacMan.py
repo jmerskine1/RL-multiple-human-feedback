@@ -1,109 +1,79 @@
-import numpy as np
+import numpy as onp
+import jax.numpy as np
+import jax
+from config import environment as env
+from config import parameters, setup, rl
+from matplotlib import pyplot as plt
+import library.utilities as ut
+
+
 
 """ --------------------------------------------------------------------------
 Ghost - class
 """
 class ghost:
-    def __init__(self, x, y, map):
-        self.init_pos = [x, y]
+    def __init__(self):
         self.reset()
-
-        self.dir = 's'
-        self.map = map
-        
-        self.P_change_direction = 0.5        
+        self.dir = env['actions']['s']
+        self.P_change_direction = 0.5       
+        self.key = parameters['key'] 
         return
     
     def reset(self, x=[], y=[]):
         if x==[]:
-            self.pos = self.init_pos
+            self.pos = env['ghost_init_pos']
         else:
-            self.pos = [x,y]
+            self.pos = np.array([x,y])
             
-        self.prepos = self.pos       
+        self.prepos = self.pos
         return
-    
+    @profile
     def move(self):
         #check if the same movement is possible
-        newPos = self.newPos(self.pos, self.dir)
-        cantMove = (newPos == self.pos)
+        newPos = ut.newPos(self.pos, self.dir)
+        cantMove = (newPos.all == self.pos.all)
         
-        if cantMove or np.random.rand() < self.P_change_direction:
+        if cantMove or jax.random.uniform(self.key) < self.P_change_direction:
+
             newPos == self.pos.copy()
-            while newPos == self.pos:
-                r = np.random.rand()
-                if  r < 1/4:
-                    self.dir = 'n'
-                elif r < 2/4:
-                    self.dir = 's'
-                elif r < 3/4:
-                    self.dir = 'w'
-                else:
-                    self.dir = 'e'
-                
-                newPos = self.newPos(self.pos, self.dir)
             
+            while np.array_equal(newPos, self.pos):
+                self.key, subkey = jax.random.split(self.key)
+                self.dir = ut.randMove(subkey)
+                newPos = ut.newPos(self.pos,self.dir)
+                
+
         # actually move
         self.prepos = self.pos
         self.pos = newPos        
         return
     
-    def newPos(self, currPos, dir):
-        
-        newPos = currPos.copy()      
-        if dir == 'n':
-            newPos[1] -= 1
-        elif dir == 's':
-            newPos[1] += 1
-        elif dir == 'w':
-            newPos[0] -= 1
-        elif dir == 'e':
-            newPos[0] += 1
-        if self.map[newPos[1]][newPos[0]] == '#':
-            newPos = currPos           
-        return newPos
+
 
 """ --------------------------------------------------------------------------
 Pacman - class
 """
 class pacman:
-    def __init__(self, x, y, map):
-        self.init_pos = [x, y]
+    def __init__(self):
+        # self.init_pos = env['pacman_init_pos']
         self.reset()
-        
-        self.map = map
+        self.key = parameters['key'] 
         return
     
     def reset(self, x=[], y=[]):
         if x==[]:
-            self.pos = self.init_pos
+            self.pos = env['pacman_init_pos']
         else:
             self.pos = [x,y]
         self.prepos = self.pos
         return
-    
+    @profile
     def move(self, action):
-        
         self.prepos = self.pos
-        self.pos = self.newPos(self.pos, action)    
+        self.pos = ut.newPos(self.pos, action)  
         return
     
-    def newPos(self, currPos, dir):
         
-        newPos = currPos.copy()
-        if dir == 'n':
-            newPos[1] -= 1
-        elif dir == 's':
-            newPos[1] += 1
-        elif dir == 'w':
-            newPos[0] -= 1
-        elif dir == 'e':
-            newPos[0] += 1
-    
-        if self.map[newPos[1]][newPos[0]] == '#':
-            newPos = currPos    
-        return newPos
-
 """ --------------------------------------------------------------------------
 Pellets - class (Toplevel)
 """
@@ -114,7 +84,7 @@ class pellets:
         return
     
     def reset(self):
-        self.valid[:] = True
+        self.valid = self.valid.at[:].set(True)
     
     def remaining_pellets(self):
         return self.pos_list[self.valid]
@@ -133,43 +103,56 @@ class pellets:
 """ --------------------------------------------------------------------------
 env - class (Toplevel)
 """
-class env:
+class environment:
 
     def __init__(self):
-        self.map = list()
-        self.map.append('#######')
-        self.map.append('#     #')
-        self.map.append('# ### #')
-        self.map.append('# #   #')
-        self.map.append('# ### #')
-        self.map.append('#     #')
-        self.map.append('#######')
-                                
-        self.pacman = pacman(1,1, self.map)
-        self.ghost  = ghost(5,5, self.map)
+        self.pacman = pacman()
+        self.ghost  = ghost()
         self.pellets = pellets([[3,3], [1,5]])        
-
-        self.map_size_x = len(self.map[0]) - 2
-        self.map_size_y = len(self.map) - 2
         self.num_pellets = self.pellets.number_remaining_pellets()
+        
+
+        if setup['dispON']:
+            self.fig, self.ax = plt.subplots(figsize = (8,8))
+            self.ax.set_aspect(1.0)
+
+            # Plot vertical lines
+            for i in range(env['size']['X'] + 1):
+                self.ax.plot([0, env['size']['X']],[i, i],  color='black')
+            for i in range(env['size']['Y'] + 1):
+                self.ax.plot([i, i], [0, env['size']['Y']], color='black')
+            self.ax.set_xticks([])
+            self.ax.set_yticks([])
+
+            for obstacle in env['obstacles']:
+                plt.scatter(obstacle[0],obstacle[1],s = 200,c='k')
+            
+            for pellet in env['pellets']:
+                plt.scatter(pellet[0],pellet[1],s = 100,c='r')
+
+
+            self.pacman_plot = self.ax.scatter(env['pacman_init_pos'][0],env['pacman_init_pos'][1],s=400,c='y')
+            self.ghost_plot = self.ax.scatter(env['ghost_init_pos'][0],env['ghost_init_pos'][1],s= 400,c='b')
+            plt.pause(0.05)
+            
         return
     
     def reset(self, random=False):
         if random:
-            xlim = len(self.map[0])
-            ylim = len(self.map)
+            xlim = env['size']['X']
+            ylim = env['size']['Y']
             
             # pacman location
             while True:
-                px = np.random.randint(0, xlim)
-                py = np.random.randint(0, ylim)
+                px = jax.random.randint(0, xlim)
+                py = jax.random.randint(0, ylim)
                 if self.map[px][py] != '#':
                     self.pacman.reset(px,py)
                     break
             # ghost location
             while True:
-                gx = np.random.randint(0, xlim)
-                gy = np.random.randint(0, ylim)
+                gx = jax.random.randint(0, xlim)
+                gy = jax.random.randint(0, ylim)
                 if self.map[gx][gy] != '#' and (px!=gx or py!=gy):
                     self.ghost.reset(gx,gy)
                     break
@@ -180,26 +163,24 @@ class env:
         self.pellets.reset()        
         return
     
-    def nStates(self):
-        return (self.map_size_x*self.map_size_y) * 4 * (2**self.num_pellets) * (self.map_size_x*self.map_size_y) # Ghost pos. x Ghost direction x pellets x Pacman pos.
-        
-    def action_list(self):
-        return ['n', 's', 'e', 'w']
-    
+    @profile
     def step(self, action):
-    
-        # init. return parameters
         rw = 0
         done = False
 
         # move pacman
         self.pacman.move(action)
-        
+        """
+        while np.array_equal(self.pacman.pos,self.pacman.prepos):
+            rw += -20
+            self.pacman.key,subkey = jax.random.split(self.pacman.key)
+            self.pacman.move(ut.randMove(subkey))        
+        """
         # move ghost
         self.ghost.move()
         
         # collison?
-        if self.pacman.pos == self.ghost.pos or (self.pacman.prepos == self.ghost.pos and self.pacman.pos == self.ghost.prepos):
+        if np.array_equal(self.pacman.pos, self.ghost.pos) or (np.array_equal(self.pacman.prepos, self.ghost.pos) and np.array_equal(self.pacman.pos, self.ghost.prepos)):
             # Game over
             rw = -500
             done = True
@@ -215,33 +196,48 @@ class env:
         else:
             rw -= 1
                 
+        # return [self.st2ob(), rw, done]
         return [self.st2ob(), rw, done]
+        # pacman_pos,ghost_pos,ghost_dir,pellets_valid
     
     # generate display string
     def display(self):
-        disp = self.map.copy()
+        # self.fig.canvas.draw()
+        self.pacman_plot.set_offsets(np.column_stack((self.pacman.pos[0],self.pacman.pos[1])))
+        self.ghost_plot.set_offsets(np.column_stack((self.ghost.pos[0],self.ghost.pos[1])))
 
-        p_pos = self.pellets.remaining_pellets()
-        for i in range(self.pellets.number_remaining_pellets()):
-            disp[p_pos[i][1]] = self.replaceChar(disp[p_pos[i][1]], '*', p_pos[i][0])
+        plt.pause(0.05)
 
-        disp[self.pacman.pos[1]] = self.replaceChar(disp[self.pacman.pos[1]], 'P', self.pacman.pos[0])
-        disp[self.ghost.pos[1]]   = self.replaceChar(disp[self.ghost.pos[1]],   'G', self.ghost.pos[0])
-            
-        return disp
+        display =False
+        if display:
+            disp = self.map.copy()
+
+            p_pos = self.pellets.remaining_pellets()
+            for i in range(self.pellets.number_remaining_pellets()):
+                disp[p_pos[i][1]] = self.replaceChar(disp[p_pos[i][1]], '*', p_pos[i][0])
+
+            disp[self.pacman.pos[1]] = self.replaceChar(disp[self.pacman.pos[1]], 'P', self.pacman.pos[0])
+            disp[self.ghost.pos[1]]   = self.replaceChar(disp[self.ghost.pos[1]],   'G', self.ghost.pos[0])
+                
+            return disp
+        else:
+            return None
     
-    def replaceChar(self, st, c, idx):
-        return st[0:idx] + c + st[idx+1:]
+
     
     # state to observation conversion
+    @profile
     def st2ob(self):
-        gPosIdx = (self.ghost.pos[0]-1) + (self.ghost.pos[1]-1)*self.map_size_x
-        gDirIdx = np.argmax( np.array(['n', 's', 'e', 'w']) == self.ghost.dir )
-        pPosIdx = (self.pacman.pos[0]-1) + (self.pacman.pos[1]-1)*self.map_size_x
-        peltIdx = np.sum( self.pellets.valid * 2**np.arange( len(self.pellets.valid) ) )
-    
-        return gPosIdx + gDirIdx*(self.map_size_x*self.map_size_y) + \
-                         pPosIdx*(self.map_size_x*self.map_size_y) * 4 + \
-                         peltIdx*(self.map_size_x*self.map_size_y) * 4 *(self.map_size_x*self.map_size_y)
+
+        pPosIdx = (self.pacman.pos[0]) + (self.pacman.pos[1])*(env['size']['X']+1)     # Position of pacman
+        gPosIdx = (self.ghost.pos[0]) + (self.ghost.pos[1])*(env['size']['X']+1)       # Position of ghost
         
+        # gDirIdx = list(env['actions'].values()).index(self.ghost.dir.all())   #   int(np.where(np.all(np.array(list(env['actions'].values()))==self.ghost.dir,axis=1))[0])#list(env['actions'].keys()).index(self.ghost.dir) # Direction of ghost
+
+        gDirIdx = ut.map_array_to_number(self.ghost.dir) 
+        peltIdx = int(np.sum(np.array([(p+1)*self.pellets.valid[p] for p in np.arange(len(env['pellets']))]))) # Status of pellets
         
+        return ut.index_to_element(rl['stateShape'],(pPosIdx,gPosIdx,gDirIdx,peltIdx))
+    # def st2ob(self):
+
+    #     return ut.st2ob(self.pacman.pos,self.ghost.pos,self.ghost.dir,self.pellets.valid)
