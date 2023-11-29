@@ -58,12 +58,12 @@ def main(algID   = 'tabQL_ps_Cest',     # Agent Algorithm
                     tmp = input('>>')
                     if tmp == 'stop':
                         dispON = False
-        
+
                 # call agent
                 action = agent_h.act(action, ob, rw, done, fb, 0.5)
                 # call oracle to get 'right' action
                 rightAction = oracle_h.act(action, ob, rw, done, fb, C)
-                    
+                
                 # call environment
                 ob, rw, done = env_h.step(action_list[action])
                 

@@ -1,5 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.image as image
+from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+
 
 """ --------------------------------------------------------------------------
 Ghost - class
@@ -150,10 +153,13 @@ class env:
         self.ghost  = ghost(5,5, self.map)
         self.pellets = pellets([[3,3], [1,5]])        
 
-        self.obstacles = [[2, 2], [4, 3], [2, 4], [3, 2], [4, 2], [3, 4], [4, 4]]
+        self.obstacles = [[2, 2], [2, 3], [2, 4], [3, 2], [4, 2], [3, 4], [4, 4]]
         self.map_size_x = len(self.map[0]) - 2
         self.map_size_y = len(self.map) - 2
         self.num_pellets = self.pellets.number_remaining_pellets()
+
+        self.pacman_img = image.imread('./pacman.png')
+        self.ghost_img = image.imread('./ghost.png')
         return
 
     def plot(self):
@@ -161,20 +167,32 @@ class env:
         ax.set_aspect(1.0)
         # Plot vertical lines
         for i in range(1, self.map_size_x + 1):
-            ax.plot([1, self.map_size_x],[i, i],  color='black')
+            ax.plot([1, self.map_size_x],[i, i],  color='#1818A6', zorder=1, linewidth=2)
         for i in range(1, self.map_size_y + 1):
-            ax.plot([i, i], [1, self.map_size_y], color='black')
+            ax.plot([i, i], [1, self.map_size_y], color='#1818A6', zorder=1, linewidth=2)
         ax.set_xticks([])
         ax.set_yticks([])
+        ax.set_facecolor('#2F2E2E')
 
         for obstacle in self.obstacles:
-            plt.scatter(obstacle[0],obstacle[1],s = 200,c='k')
+            plt.scatter(obstacle[0],obstacle[1],s = 200,c='k', zorder=2)
 
         for pellet in self.pellets.pos_list:
             plt.scatter(pellet[0],self.map_size_y+1-pellet[1],s = 100,c='r')
 
-        ax.scatter(self.pacman.pos[0], self.map_size_y+1-self.pacman.pos[1],s=400,c='y')
-        ax.scatter(self.ghost.pos[0], self.map_size_y+1-self.ghost.pos[0],s= 400,c='b')
+        pacman_imagebox = OffsetImage(self.pacman_img, zoom = 0.025)
+        a = AnnotationBbox(
+            pacman_imagebox,
+            (self.pacman.pos[0], self.map_size_y+1-self.pacman.pos[1]),
+            frameon=False)
+        ax.add_artist(a)
+        ghost_imagebox = OffsetImage(self.ghost_img, zoom = 0.1)
+        b = AnnotationBbox(
+            ghost_imagebox,
+            (self.ghost.pos[0], self.map_size_y+1-self.ghost.pos[1]),
+            frameon=False)
+        ax.add_artist(b)
+
         return fig, ax
 
     def reset(self, random=False):

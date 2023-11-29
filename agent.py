@@ -28,7 +28,7 @@ class agent(object):
         self.eps      = 0.1 # e-greedy policy parametre (probability to select exploration action)
         
         self.Q        = []           # value function - Q
-        self.prev_obs = []           # previous observation
+        self.prev_obs = np.NaN           # previous observation
         self.prev_act = []           # previous action
         
         self.d        = []           # delta for human feedback
@@ -49,13 +49,13 @@ class agent(object):
         return
     
     
-    def act(self, a, obs, rw, done, fb, C):
+    def act(self, a, obs, rw, done, fb, C, skip_confidence=False):
 
-        action = 0 # default action.
+        # action = 0 # default action.
 
         # Value function estimation        
         if self.algID == 'tabQL_ps_Cest':
-            action = self.tabQL_ps_Cest(obs, rw, fb)
+            action = self.tabQL_ps_Cest(obs, rw, fb, skip_confidence=skip_confidence)
         elif self.algID == 'tabQLgreedy':
             action = self.tabQLgreedy(obs, rw)
         
@@ -93,7 +93,7 @@ class agent(object):
 
         return action
 
-    def tabQL_ps_Cest(self, obs, rw, fb):
+    def tabQL_ps_Cest(self, obs, rw, fb, skip_confidence=False):
         # initialise Q
         if len(self.Q) == 0:
             #self.Q = np.ones([self.nStates, self.nActions])*50 # initialise Q function (s,a)
@@ -122,7 +122,7 @@ class agent(object):
         """
         # Boltzmann exploration policy
         l_pr = self.Q[curr_state_idx,:]/self.tempConst
-        
+
         # policy shaping
         self.d = self.hp - self.hm
         for trainerIdx in np.arange(self.nTrainer):
@@ -136,40 +136,40 @@ class agent(object):
         
         # decide action based on pr[] probability distribution
         action = np.min( np.where( np.random.rand() < np.cumsum(pr) ) )        
-
-        
-        # check if this is the first time...
-        if self.prev_obs != []:
-            # one step TD algorithm
-            prev_state_idx = self.prev_obs
-            prev_action_idx = self.prev_act
-            
-            #td_err = (rw + self.gamma * np.sum(self.Q[curr_state_idx,:] * pr)) - self.Q[prev_state_idx, prev_action_idx] 
-            a_idx = np.argmax(pr)
-            td_err = (rw + self.gamma * self.Q[curr_state_idx,a_idx]) - self.Q[prev_state_idx, prev_action_idx] 
-            self.Q[prev_state_idx, prev_action_idx] += self.alpha * td_err
-        
-            # Human feedback updates
-            for trainerIdx in np.arange(self.nTrainer):
-
-                if fb[trainerIdx] == True:
-                    self.hp[trainerIdx, prev_state_idx, prev_action_idx] += 1
-                elif fb[trainerIdx] == False:
-                    self.hm[trainerIdx, prev_state_idx, prev_action_idx] += 1
+    
+        if not skip_confidence:
+            # check if this is the first time...
+            if self.prev_obs != np.NaN:
+                # one step TD algorithm
+                prev_state_idx = self.prev_obs
+                prev_action_idx = self.prev_act
                 
-                Cest_enable = True # hyper param to enable Cest
-                if Cest_enable:
-                    ret = self.estimateC(self.hp[trainerIdx,:,:], \
-                                        self.hm[trainerIdx,:,:], \
-                                        self.Ce[trainerIdx],
-                                        self.ave_absQ[trainerIdx],
-                                        self.ave_nFBs[trainerIdx])
-                    self.Ce[trainerIdx] = ret['Ce']
-                    self.ave_nFBs[trainerIdx] = ret['ave_nFBs']
-                    self.ave_absQ[trainerIdx] = ret['ave_absQ']
-                else:
-                    # fixed Cest case
-                    self.Ce[trainerIdx] = 0.8 # <- edit fixed number here
+                #td_err = (rw + self.gamma * np.sum(self.Q[curr_state_idx,:] * pr)) - self.Q[prev_state_idx, prev_action_idx] 
+                a_idx = np.argmax(pr)
+                td_err = (rw + self.gamma * self.Q[curr_state_idx,a_idx]) - self.Q[prev_state_idx, prev_action_idx] 
+                self.Q[prev_state_idx, prev_action_idx] += self.alpha * td_err
+
+
+                # Human feedback updates
+                for trainerIdx in np.arange(self.nTrainer):
+                    if fb[trainerIdx] == True:
+                        self.hp[trainerIdx, prev_state_idx, prev_action_idx] += 1
+                    elif fb[trainerIdx] == False:
+                        self.hm[trainerIdx, prev_state_idx, prev_action_idx] += 1
+                    
+                    Cest_enable = True # hyper param to enable Cest
+                    if Cest_enable:
+                        ret = self.estimateC(self.hp[trainerIdx,:,:], \
+                                            self.hm[trainerIdx,:,:], \
+                                            self.Ce[trainerIdx],
+                                            self.ave_absQ[trainerIdx],
+                                            self.ave_nFBs[trainerIdx])
+                        self.Ce[trainerIdx] = ret['Ce']
+                        self.ave_nFBs[trainerIdx] = ret['ave_nFBs']
+                        self.ave_absQ[trainerIdx] = ret['ave_absQ']
+                    else:
+                        # fixed Cest case
+                        self.Ce[trainerIdx] = 0.8 # <- edit fixed number here
 
         return action
 

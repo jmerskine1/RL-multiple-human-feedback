@@ -9,66 +9,72 @@
         display: flex;
     }
     .column {
-        flex: 24.9%;
+        flex: 10.9%;
         padding: 2px;
     }
     div {
         text-align: center;
     }
     h1 {
+        font-family: 'Permanent Marker', cursive;
+        text-align: center;
+        color: #FFFF00;
         text-align: center;
     }
     h2 {
+        font-family: 'Permanent Marker', cursive;
+        text-align: center;
+        color: #FFFF00;
         text-align:center;
     }
     form {
         display: inline;
     }
+    body {
+        font-family: 'Permanent Marker', cursive;
+        text-align: center;
+        color: #FFFF00;
+        background-color: #2F2E2E;
+    }
 </style>
 
 <body>
-    <h1>Human feedback</h1>
+    <h1>Human feedback for Pacman</h1>
     <div class="row">
         <div class="column">
             <h2>Previous Environment</h2>
             <img src='data:image/png;base64,{{img1}}' style="width:75%"/>
         </div>
-        <div class="column">
-            <h2>Environment</h2>
-            <img src='data:image/png;base64,{{img2}}' style="width:75%"/>
-        </div>
-    </div> 
-    <div class="buttons"> 
         <form action="/previous" method="post">
             <button type="submit">Previous</button>
         </form>
         <form action="/next" method="post">
             <button type="submit">Next</button>
         </form>
+        <div class="column">
+            <h2>Environment</h2>
+            <img src='data:image/png;base64,{{img2}}' style="width:75%"/>
+        </div>
+        <div class="column">
+            <h2>Estimated Confidence</h2>
+            <img src='data:image/png;base64, {{graph}}'>
+        </div>
     </div>
-    <h2>What is your confidence that these action is the optimal?</h2>
-    <!-- <div class="buttons">
-        <form action="/dontagree" method="post">
-            <button type="submit">Don't Agree</button>
-        </form>
-        <form action="/agree" method="post">
-            <button type="submit">Agree</button>
-        </form>
-    </div> -->
+    <h2>What is your confidence that these actions are the optimal action?</h2>
     <form action="/submit" method="post">
         <div class="slidecontainer" id="slide_container_f">
             <input type="checkbox" name="Checkbox1">North
             <input type="range" min=0.0 max=1.0 value=0.0 class="slider" step="0.1"
-                id="myRange" name="Feedback1">
+                id="myRange" name="Feedback1" oninput="this.nextElementSibling.value = this.value"> <output>0</output>
             <input type="checkbox" name="Checkbox2">South
             <input type="range" min=0.0 max=1.0 value=0.0 class="slider" step="0.1"
-                id="myRange" name="Feedback2">
+                id="myRange" name="Feedback2" oninput="this.nextElementSibling.value = this.value"><output>0</output>
             <input type="checkbox" name="Checkbox3">East
             <input type="range" min=0.0 max=1.0 value=0.0 class="slider" step="0.1"
-                id="myRange" name="Feedback3">
+                id="myRange" name="Feedback3" oninput="this.nextElementSibling.value = this.value"><output>0</output>
             <input type="checkbox" name="Checkbox4">West
             <input type="range" min=0.0 max=1.0 value=0.0 class="slider" step="0.1"
-                id="myRange" name="Feedback4">
+                id="myRange" name="Feedback4" oninput="this.nextElementSibling.value = this.value"><output>0</output>
             <div>
                 <input type="submit" value="Submit">
             </div>
