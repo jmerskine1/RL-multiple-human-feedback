@@ -60,9 +60,9 @@
             <img src='data:image/png;base64, {{graph}}'>
         </div>
     </div>
-    <h2>What is your confidence that these actions are the optimal action?</h2>
+    <h2>What was the optimal action for the agent to take?</h2>
     <form action="/submit" method="post">
-        <div class="slidecontainer" id="slide_container_f">
+        <!-- <div class="slidecontainer" id="slide_container_f">
             <input type="checkbox" name="Checkbox1">North
             <input type="range" min=0.0 max=1.0 value=0.0 class="slider" step="0.1"
                 id="myRange" name="Feedback1" oninput="this.nextElementSibling.value = this.value"> <output>0</output>
@@ -78,8 +78,27 @@
             <div>
                 <input type="submit" value="Submit">
             </div>
+        </div> -->
+        <div>
+            <form action="/submit" method="post">
+                <button type="submit" value="n" name="feedback_button">↑</button>
+                <button type="submit" value="s" name="feedback_button">↓</button>
+                <button type="submit" value="e" name="feedback_button">→</button>
+                <button type="submit" value="w" name="feedback_button">←</button>
+            </form>
+        </div>
+        <div>
+            {% if session_status %}
+            <h2>
+                <h1>Episode finished click to start a new episode.</h1>
+                <form action="/newepisode" method="post">
+                     <button type="submit">Reload</button>
+                </form>
+            </h2>
+            {% else %}
+            <h2></h2>
+            {% endif %}
         </div>
     </form>
-    
 </body>
 </html>
