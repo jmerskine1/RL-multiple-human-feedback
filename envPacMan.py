@@ -177,7 +177,7 @@ class env:
         for obstacle in self.obstacles:
             plt.scatter(obstacle[0],obstacle[1],s = 200,c='k', zorder=2)
 
-        for pellet in self.pellets.pos_list:
+        for pellet in self.pellets.remaining_pellets():
             plt.scatter(pellet[0],self.map_size_y+1-pellet[1],s = 100,c='r')
 
         pacman_imagebox = OffsetImage(self.pacman_img, zoom = 0.025)

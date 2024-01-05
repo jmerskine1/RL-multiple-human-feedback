@@ -133,7 +133,7 @@ def index():
 
 @app.route('/newepisode', methods=['POST'])
 def new_episode():
-    session['environment'].reset()
+    session['environment'].reset(random=True)
     session['agent'].prev_obs = []
 
     # Reset environment
