@@ -31,3 +31,11 @@ Run the experiment
 ```
 python flask_app.py
 ```
+### Running on Ubuntu
+For Ubuntu you need to install the redis server using
+```
+sudo apt install redis-server
+```
+
+### Running on Windows
+Redis-server is not supported so windows is unable to run the server currently
