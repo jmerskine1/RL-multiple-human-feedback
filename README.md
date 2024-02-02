@@ -25,7 +25,7 @@ Install requirements
 ```
 conda activate PACMAN_exp
 cd human_interface
-pip install requirements.txt
+pip install -r requirements.txt
 ```
 Run the experiment
 ```
