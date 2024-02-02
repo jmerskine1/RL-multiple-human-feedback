@@ -24,7 +24,7 @@ conda create -n PACMAN_exp python=3.11 -y
 Install requirements
 ```
 conda activate PACMAN_exp
-cd human_feedback
+cd human_interface
 pip install requirements.txt
 ```
 Run the experiment
