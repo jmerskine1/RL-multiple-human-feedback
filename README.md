@@ -15,7 +15,7 @@ cd RL-multiple-human-feedback
 ```
 Change to the branch we need
 ```
-git checkout dev2
+git checkout dev_2
 ```
 Make a new python environment (using conda)
 ```
