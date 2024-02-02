@@ -19,7 +19,7 @@ git branch dev2
 ```
 Make a new python environment (using conda)
 ```
-conda create -n PACMAN_exp python=3.9 -y
+conda create -n PACMAN_exp python=3.11 -y
 ```
 Install requirements
 ```
