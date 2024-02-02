@@ -1,104 +1,181 @@
 <!DOCTYPE html>
 <html lang="en">
 
-<style>
-    * {
-        box-sizing: border-box;
-    }
-    .row {
-        display: flex;
-    }
-    .column {
-        flex: 10.9%;
-        padding: 2px;
-    }
-    div {
-        text-align: center;
-    }
-    h1 {
-        font-family: 'Permanent Marker', cursive;
-        text-align: center;
-        color: #FFFF00;
-        text-align: center;
-    }
-    h2 {
-        font-family: 'Permanent Marker', cursive;
-        text-align: center;
-        color: #FFFF00;
-        text-align:center;
-    }
-    form {
-        display: inline;
-    }
-    body {
-        font-family: 'Permanent Marker', cursive;
-        text-align: center;
-        color: #FFFF00;
-        background-color: #2F2E2E;
-    }
-</style>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Human Feedback for PACMAN</title>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='styles/mainpage.css') }}">
+
+</head>
 
 <body>
     <h1>Human feedback for Pacman</h1>
-    <div class="row">
-        <div class="column">
-            <h2>Previous Environment</h2>
-            <img src='data:image/png;base64,{{img1}}' style="width:75%"/>
-        </div>
-        <form action="/previous" method="post">
-            <button type="submit">Previous</button>
-        </form>
-        <form action="/next" method="post">
-            <button type="submit">Next</button>
-        </form>
-        <div class="column">
-            <h2>Environment</h2>
-            <img src='data:image/png;base64,{{img2}}' style="width:75%"/>
-        </div>
-        <div class="column">
-            <h2>Estimated Confidence</h2>
-            <img src='data:image/png;base64, {{graph}}'>
-        </div>
-    </div>
-    <h2>What was the optimal action for the agent to take?</h2>
-    <form action="/submit" method="post">
-        <!-- <div class="slidecontainer" id="slide_container_f">
-            <input type="checkbox" name="Checkbox1">North
-            <input type="range" min=0.0 max=1.0 value=0.0 class="slider" step="0.1"
-                id="myRange" name="Feedback1" oninput="this.nextElementSibling.value = this.value"> <output>0</output>
-            <input type="checkbox" name="Checkbox2">South
-            <input type="range" min=0.0 max=1.0 value=0.0 class="slider" step="0.1"
-                id="myRange" name="Feedback2" oninput="this.nextElementSibling.value = this.value"><output>0</output>
-            <input type="checkbox" name="Checkbox3">East
-            <input type="range" min=0.0 max=1.0 value=0.0 class="slider" step="0.1"
-                id="myRange" name="Feedback3" oninput="this.nextElementSibling.value = this.value"><output>0</output>
-            <input type="checkbox" name="Checkbox4">West
-            <input type="range" min=0.0 max=1.0 value=0.0 class="slider" step="0.1"
-                id="myRange" name="Feedback4" oninput="this.nextElementSibling.value = this.value"><output>0</output>
-            <div>
-                <input type="submit" value="Submit">
+    
+    <div class="container">
+        <div class="sidebar">
+            <div class="left-aligned-text">
+            <h2><span class="thicker-underlined-text">Instructions</span></h2><br>
+            <h3>To provide feedback to our RL pacman agent:</h3>
+            <div class="numbered-list">
+                <ol>
+                    <li>State A and State B are consecutive time steps. Look at both to decide which action would be best in <span class=underlined-text>State A</span>. Consider where the ghost will move.</li><br>
+                    <li>Select the direction which corresponds to this action. You can click the arrows, or use your arrow keys.</li><br>
+                    <li>Submit your feedback by clicking 'Submit', or by pressing SPACE on your keyboard. This will automatically take you to the next time step.</li><br>
+                    <li>When an episode finishes (PACMAN wins or loses) a button will appear to start a new episode.</li><br>
+                    <li>Clicking "Submit" will only progress to the next slide if you provide feedback, but you can skip between time steps by clicking 'Previous' and 'Next'.</li>
+                </ol>
             </div>
-        </div> -->
-        <div>
-            <form action="/submit" method="post">
-                <button type="submit" value="n" name="feedback_button">↑</button>
-                <button type="submit" value="s" name="feedback_button">↓</button>
-                <button type="submit" value="e" name="feedback_button">→</button>
-                <button type="submit" value="w" name="feedback_button">←</button>
+            </div>    
+        </div>
+
+    <div class="main-content">
+        <div class="row">
+            <div class="column">
+                <h2>State A</h2>
+                <img src='data:image/png;base64,{{img1}}' style="width:90%" />
+            </div>
+
+            <div class="column">
+                <h2>State B</h2>
+                <img src='data:image/png;base64,{{img2}}' style="width:70%" />
+            </div>
+            <!-- <div class="column">
+                <h2>Estimated Confidence</h2>
+                <img src='data:image/png;base64, {{graph}}'>
+            </div> -->
+        </div>
+
+        <div class="buttons_pos">
+            <div class="arrows">
+            <div class="buttons_pos"  style="padding-bottom: 10px;">
+                <button  class = "arrow_button" name = "feedback_button" id="ArrowUp">↑</button><br>
+                <button  class = "arrow_button" name = "feedback_button" id="ArrowLeft">←</button>
+                <button  class = "arrow_button" name = "feedback_button"  id="ArrowDown">↓</button>
+                <button  class = "arrow_button" name = "feedback_button" id="ArrowRight">→</button> 
+            </div>
+            <div  style="padding-bottom: 10px;">
+                <button class="spacebar-button" id="Spacebar">Submit</button>
+            </div>
+            </div>
+            <div class="container" style="padding-left: 50px">
+            <form action="/previous" method="post">
+                <button class = "direction-button" type="submit">Previous</button>
+            </form>
+       
+            <form action="/next" id="next" method="post">
+                <button class = "direction-button" type="submit">Next</button>
             </form>
         </div>
-        <div>
-            {% if session_status %}
-            <h2>
-                <h1>Episode finished click to start a new episode.</h1>
-                <form action="/newepisode" method="post">
-                     <button type="submit">Reload</button>
-                </form>
-            </h2>
-            {% else %}
-            <h2></h2>
-            {% endif %}
+
         </div>
-    </form>
+
+        
+    </div>
+    
+    <div>
+        {% if session_status %}
+        <h2>
+            <h1>Episode finished click to start a new episode.</h1>
+            <form action="/newepisode" method="post">
+                <button type="submit">Reload</button>
+            </form>
+        </h2>
+        {% else %}
+        <h2></h2>
+        {% endif %}
+    </div>
+    
+    <script>
+    
+        document.addEventListener("DOMContentLoaded", function () {
+
+            var arrowButtons = {
+                "ArrowUp": document.getElementById("ArrowUp"),
+                "ArrowLeft": document.getElementById("ArrowLeft"),
+                "ArrowDown": document.getElementById("ArrowDown"),
+                "ArrowRight": document.getElementById("ArrowRight")
+            };
+
+            var currentArrowButton = null;
+            
+            document.getElementById("Spacebar").addEventListener("click", function() {
+  
+                sendArrowValue(currentArrowButton['id'].toLowerCase());
+        
+                var form = document.getElementById("next");
+                console.log('submitting form')
+                // Submit the form
+                form.submit();
+                });
+
+
+               // Add click event listeners to each button
+            Object.values(arrowButtons).forEach(function(button) {
+                button.addEventListener("click", function() {
+
+                    if (currentArrowButton) {
+                        currentArrowButton.classList.remove("active");
+                    }
+                    button.classList.add("active");
+                    currentArrowButton = button;
+                });
+            });
+
+            document.addEventListener("keydown", function (event) {
+                var key = event.key;
+                console.log("button",key)
+                if (key != " "){
+                    event.preventDefault();
+                if (arrowButtons.hasOwnProperty(key)) {
+                    if (currentArrowButton) {
+                        currentArrowButton.classList.remove("active");
+                    }
+                    arrowButtons[key].classList.add("active");
+                    currentArrowButton = arrowButtons[key];
+                }}
+                 if (event.key === " " || event.keyCode === 32) {
+                    // Prevent the default behavior of scrolling the page down when pressing spacebar
+                    event.preventDefault();
+
+                    sendArrowValue(currentArrowButton['id'].toLowerCase());
+        
+                    var form = document.getElementById("next");
+                    console.log('submitting form')
+                    // Submit the form
+                    form.submit();
+                    }
+            });
+
+
+
+            function sendArrowValue(arrow) {
+                console.log('sending',arrow)
+                fetch('/submit', {
+                    method: 'POST',
+                    name: 'feedback_button',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ arrow: arrow })
+                })
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Network response was not ok');
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        console.log('Response:', data);
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                    });
+            }
+        });
+    </script>
+
+    
 </body>
+
 </html>

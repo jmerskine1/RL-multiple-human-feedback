@@ -1,0 +1,184 @@
+
+*{
+    box-sizing: border-box;
+}
+.row {
+    display: flex;
+}
+.column {
+    flex: 10.9%;
+    padding: 2px;
+}
+
+.container {
+    display: flex; /* Use flexbox layout */
+}
+
+.main-content {
+    flex-grow: 1; /* Allow main content to grow and occupy remaining space */
+}
+
+.sidebar {
+    width: calc(34.00% - 40px); /* Two-thirds of the page width (minus margin) */
+    margin-right: 40px; /* Adjust as needed */
+}
+
+.buttons_pos {
+    width: 100px; /* Two-thirds of the page width (minus margin) */
+    margin-right: 10px; /* Adjust as needed */
+    margin-left: 90px; /* Adjust as needed */
+}
+
+.content {
+    /* Optional styles for content */
+    padding: 10px;
+}
+
+.active {
+    background-color: yellow !important;
+}
+
+.arrow-container {
+    display: inline-block;
+    border: 2px solid transparent;
+    padding: 10px;
+}
+.arrow-container.active {
+    border-color: blue;
+}
+.arrow {
+    font-size: 48px;
+    opacity: 0.3;
+}
+.arrow.active {
+    opacity: 1;
+}
+
+.left-aligned-text {
+    text-align: left; /* Set text alignment to left */
+}
+.underlined-text {
+    text-decoration: underline; /* Apply underline to the text */
+}
+.thicker-underlined-text {
+    border-bottom: 2px solid; /* Apply thicker underline using border-bottom */
+}
+.numbered-list {
+    max-width: 600px; /* Set max width for the list */
+    margin: 0 auto; /* Center the list horizontally */
+    /* font-family: "Your Font Name", sans-serif; */ /* Remove this line */
+}
+.numbered-list li {
+    font-family: monospace, Arial, Helvetica, sans-serif;
+    font-size: 12px;
+    text-align: left; /* Set text alignment to left */
+}
+
+.arrow_button {
+    width: 30px;
+    height: 30px;
+    background-color: #000000; /* Set the background color */
+    color: #4663FF; /* Set the text color */
+    /* padding: 10px 20px; Add padding for better visual appearance */
+    border: 1px solid #4663FF;
+    border-radius: 5px; /* Add border radius for rounded corners */
+    cursor: pointer; /* Add cursor pointer on hover */
+  }
+
+
+.box {
+    width: 100px; /* Adjust width as needed */
+    height: 100px; /* Adjust height as needed */
+    background-color: lightblue;
+}
+
+.direction-button {
+    width: 100px; /* Adjust width as needed */
+    height: 30px; /* Adjust height as needed */
+    font-size: 16px; /* Adjust font size as needed */
+    color: #4663FF;
+    background-color: #000000;
+    border: 1px solid #4663FF;
+    border-radius: 5px;
+    box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+  }
+
+.spacebar-button {
+    display: inline-block;
+    width: 300px; /* Adjust width as needed */
+    height: 30px; /* Adjust height as needed */
+    padding: 5px;
+    font-size: 20px;
+    font-weight: bold;
+    text-align: center;
+    color: #4663FF;
+    background-color: #000000;
+    border: 1px solid #4663FF;
+    border-radius: 5px;
+    box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+    transition: background-color 0.3s, transform 0.2s;
+}
+
+.spacebar-button:hover {
+    background-color: #e0e0e0;
+}
+
+.spacebar-button:active {
+    transform: translateY(2px);
+}
+
+@font-face {
+    font-family: 'BalAstaralPunch'; /*a name to be used later*/
+    src: url('/static/styles/fonts/bal-astaral-font/BalAstaralPunchItalic-vmW39.ttf');
+}
+
+@font-face {
+    font-family: 'EmuLogic'; /*a name to be used later*/
+    src: url('/static/styles/fonts/emulogic-font/Emulogic-zrEw.ttf');
+}
+div {
+    text-align: center;
+}
+h1 {
+    font-family: 'BalAstaralPunch', Arial, Helvetica, sans-serif;
+    font-size: 56px;
+    text-align: center;
+    color: #FFFF00;
+    text-align: center;
+}
+
+h2 {
+    font-family: 'EmuLogic', Arial, Helvetica, sans-serif;
+    font-size: 20px;
+    text-align: center;
+    color: #FFFF00;
+    text-align: center;
+}
+
+h3 {
+    /* font-family: 'EmuLogic', Arial, Helvetica, sans-serif; */
+    font-family: monospace, Arial, Helvetica, sans-serif;
+    font-size: 12px;
+    text-align: center;
+    color: #FFFF00;
+    text-align: center;
+}
+h4 {
+    font-family: 'EmuLogic', Arial, Helvetica, sans-serif;
+    font-size: 8px;
+    text-align: center;
+    color: #FFFF00;
+    text-align: center;
+}
+
+form {
+    display: inline;
+}
+body {
+    font-family: 'Permanent Marker', cursive;
+    text-align: center;
+    color: #FFFF00;
+    background-color: #000000;
+}

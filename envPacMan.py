@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.image as image
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+import matplotlib.patheffects as pe
 
 
 """ --------------------------------------------------------------------------
@@ -151,19 +152,55 @@ class env:
                                 
         self.pacman = pacman(1,1, self.map)
         self.ghost  = ghost(5,5, self.map)
-        self.pellets = pellets([[3,3], [1,5]])        
+        self.pellets = pellets([[3,3], [1,5]])
 
         self.obstacles = [[2, 2], [2, 3], [2, 4], [3, 2], [4, 2], [3, 4], [4, 4]]
         self.map_size_x = len(self.map[0]) - 2
         self.map_size_y = len(self.map) - 2
         self.num_pellets = self.pellets.number_remaining_pellets()
 
-        self.pacman_img = image.imread('./pacman.png')
-        self.ghost_img = image.imread('./ghost.png')
+        self.pacman_img = image.imread('./sprites/pacman.png')
+        self.ghost_img = image.imread('./sprites/ghost.png')
+        self.pellet_img = image.imread('./sprites/cherry.png')
+        self.walls = self.add_walls()
         return
+    
+    def wall_exists(self,coord1,coord2,walls):
+        if [coord1,coord2] in walls or [coord2,coord1] in walls:
+            return True
+        else:
+            return False
+        
+    def add_walls(self):
+        walls = []
+        margin = 0.5
+        # plot boundaries of arena
+        # walls.append([[margin,margin],[self.map_size_x+margin,margin]])
+        # walls.append([[margin,self.map_size_y+margin],[self.map_size_x+margin,self.map_size_y+margin]])
+        # walls.append([[margin,margin],[margin,self.map_size_y+margin]])
+        # walls.append([[self.map_size_x+margin,margin],[self.map_size_x+margin,self.map_size_y+margin]])
+        walls.append([[margin,margin],[self.map_size_x+margin,margin],
+                      [margin,margin],[margin,self.map_size_y+margin],
+                      [margin,self.map_size_y+margin],[self.map_size_x+margin,self.map_size_y+margin],
+                      [self.map_size_x+margin,margin],[self.map_size_x+margin,self.map_size_y+margin]])
+        
+
+        for ob_a in self.obstacles:
+            for ob_b in self.obstacles:
+                if self.wall_exists(ob_a,ob_b,walls):
+                    continue
+                else:
+                    if abs(ob_a[0] - ob_b[0]) == 1 and abs(ob_a[1] - ob_b[1]) == 0:
+                        walls.append([ob_a,ob_b])
+                    elif abs(ob_a[1] - ob_b[1]) == 1 and abs(ob_a[0] - ob_b[0]) == 0:
+                        walls.append([ob_b,ob_a])
+        return walls
+
 
     def plot(self):
-        fig, ax = plt.subplots(figsize = (5,5))
+        fig, ax = plt.subplots(figsize = (5,5),edgecolor='black')
+        for spine in ax.spines.values():
+            spine.set_edgecolor('black')
         ax.set_aspect(1.0)
         # Plot vertical lines
         for i in range(1, self.map_size_x + 1):
@@ -172,13 +209,25 @@ class env:
             ax.plot([i, i], [1, self.map_size_y], color='#1818A6', zorder=1, linewidth=2)
         ax.set_xticks([])
         ax.set_yticks([])
-        ax.set_facecolor('#2F2E2E')
+        # ax.set_facecolor('#2F2E2E')
+        ax.set_facecolor('#000000')
+        
+        for wall in self.walls:
+            x,y = zip(*wall)
+            plt.plot(x,y,color='#000000',linewidth=10,path_effects=[pe.Stroke(linewidth=15, foreground='#4663FF'), pe.Normal()], zorder=2)
+            
 
-        for obstacle in self.obstacles:
-            plt.scatter(obstacle[0],obstacle[1],s = 200,c='k', zorder=2)
+        # for obstacle in self.obstacles:
+        #     plt.scatter(obstacle[0],obstacle[1],s = 200,c='k', zorder=2)
 
+        pellet_imagebox = OffsetImage(self.pellet_img, zoom = 0.05)
         for pellet in self.pellets.remaining_pellets():
-            plt.scatter(pellet[0],self.map_size_y+1-pellet[1],s = 100,c='r')
+            a = AnnotationBbox(
+                pellet_imagebox,
+                (pellet[0], self.map_size_y+1-pellet[1]),
+                frameon=False)
+            ax.add_artist(a)
+            # plt.scatter(pellet[0],self.map_size_y+1-pellet[1],s = 100,c='r')
 
         pacman_imagebox = OffsetImage(self.pacman_img, zoom = 0.025)
         a = AnnotationBbox(
@@ -204,14 +253,15 @@ class env:
             while True:
                 px = np.random.randint(0, xlim)
                 py = np.random.randint(0, ylim)
-                if self.map[px][py] != '#':
+                if self.map[py][px] != '#':
                     self.pacman.reset(px,py)
                     break
             # ghost location
             while True:
                 gx = np.random.randint(0, xlim)
                 gy = np.random.randint(0, ylim)
-                if self.map[gx][gy] != '#' and (px!=gx or py!=gy):
+                if self.map[gy][gx] != '#' and (px!=gx or py!=gy) and [gx,gy] not in [list(ppos) for ppos in list(self.pellets.pos_list)]:
+                    
                     self.ghost.reset(gx,gy)
                     break
         else:
@@ -242,6 +292,7 @@ class env:
         # collison?
         if self.pacman.pos == self.ghost.pos or (self.pacman.prepos == self.ghost.pos and self.pacman.pos == self.ghost.prepos):
             # Game over
+            # self.pacman.pos = self.pacman.prepos
             rw = -500
             done = True
         
