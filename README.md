@@ -31,6 +31,17 @@ Run the experiment
 ```
 python flask_app.py
 ```
+> You may encounter an issue where your connection to a local server is denied. If this is the case you will need to install and run redis-server
+
+### Redis Server for Mac
+```
+brew install redis
+```
+then run the server with 
+```
+redis-server
+```
+Full installation instructions here: 
 ### Running on Ubuntu
 For Ubuntu you need to install the redis server using
 ```
@@ -38,4 +49,6 @@ sudo apt install redis-server
 ```
 
 ### Running on Windows
-Redis-server is not supported so windows is unable to run the server currently
+Redis-server is not officially supported so windows installation is more involved.
+
+Full installations instructions for each OS can be found here <href>https://redis.io/docs/install/install-redis/</href>
