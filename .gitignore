@@ -1,0 +1,7 @@
+# Ignore config files
+config.*
+
+*.pyc
+
+# Ignore Python bytecode cache
+__pycache__/
