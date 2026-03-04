@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Human Feedback for PACMAN – Ordinal</title>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='styles/mainpage.css') }}">
+    <style>
+        .layout {
+            display: flex;
+            gap: 24px;
+            align-items: flex-start;
+            padding: 10px;
+        }
+        .col-left   { flex: 0 0 22%; min-width: 180px; }
+        .col-center { flex: 1; display: flex; flex-direction: column; align-items: center; }
+        .col-right  { flex: 0 0 200px; display: flex; flex-direction: column; align-items: center; gap: 12px; padding-top: 30px; }
+        .key-grid {
+            display: inline-grid;
+            grid-template-columns: repeat(3, 60px);
+            grid-template-rows: repeat(2, 60px);
+            gap: 4px;
+        }
+        /* No !important — JS inline styles must be able to override these */
+        .arrow_button {
+            position: relative;
+            width: 60px;
+            height: 60px;
+            font-size: 20px;
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+            -webkit-user-select: none;
+            background-color: #1a1a1a;
+            border-color: #4663FF;
+            color: #4663FF;
+        }
+        .arrow_button .value-label {
+            font-size: 9px;
+            line-height: 1;
+            margin-top: 2px;
+            color: inherit;
+        }
+        .arrow_button .fill-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 4px;
+            width: 0%;
+            background: rgba(255, 255, 255, 0.7);
+            border-radius: 0 0 3px 3px;
+        }
+        .spacebar-button { width: 160px; }
+        .nav-buttons { display: flex; gap: 8px; }
+    </style>
+</head>
+
+<body>
+    <h1>Human feedback for Pacman</h1>
+
+    <div class="layout">
+
+        <!-- LEFT: instructions -->
+        <div class="col-left">
+            <div class="left-aligned-text">
+                <h2><span class="thicker-underlined-text">Instructions</span></h2><br>
+                <h3>To score actions for our RL Pacman agent:</h3>
+                <div class="numbered-list">
+                    <ol>
+                        <li>Look at the current state. Faded sprites show where Pacman and the ghost were in the last two steps.</li><br>
+                        <li>Hold each arrow button (or hold each arrow key) to set its score 0 (<strong style="color:#ff4444">bad</strong>) → 1 (<strong style="color:#00C851">good</strong>). The longer you hold, the higher the score. Release when happy with the value.</li><br>
+                        <li>Hold a button again to reset its value and re-score it.</li><br>
+                        <li>Once happy with all four scores, click 'Submit' or press SPACE. This advances to the next time step.</li><br>
+                        <li>When an episode finishes a button will appear to start a new episode.</li><br>
+                        <li>You can skip between time steps using 'Previous' and 'Next'.</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+
+        <!-- CENTER: current state -->
+        <div class="col-center">
+            <h2>Current State</h2>
+            <img src='data:image/png;base64,{{img2}}' style="width:100%; max-width:420px;" />
+        </div>
+
+        <!-- RIGHT: feedback controls -->
+        <div class="col-right">
+            <h2>Feedback</h2>
+            <div class="key-grid">
+                <div></div>
+                <button type="button" class="arrow_button" id="ArrowUp">↑<span class="value-label" id="val-ArrowUp">0.00</span><span class="fill-bar" id="fill-ArrowUp"></span></button>
+                <div></div>
+                <button type="button" class="arrow_button" id="ArrowLeft">←<span class="value-label" id="val-ArrowLeft">0.00</span><span class="fill-bar" id="fill-ArrowLeft"></span></button>
+                <button type="button" class="arrow_button" id="ArrowDown">↓<span class="value-label" id="val-ArrowDown">0.00</span><span class="fill-bar" id="fill-ArrowDown"></span></button>
+                <button type="button" class="arrow_button" id="ArrowRight">→<span class="value-label" id="val-ArrowRight">0.00</span><span class="fill-bar" id="fill-ArrowRight"></span></button>
+            </div>
+            <button class="spacebar-button" id="Spacebar">Submit</button>
+            <div class="nav-buttons">
+                <form action="/previous" method="post">
+                    <button class="direction-button" type="submit">Previous</button>
+                </form>
+                <form action="/next" id="next" method="post">
+                    <button class="direction-button" type="submit">Next</button>
+                </form>
+            </div>
+        </div>
+
+    </div>
+
+    <div>
+        {% if session_status %}
+        <h1>Episode finished — click to start a new episode.</h1>
+        <form action="/newepisode" method="post">
+            <button type="submit">Reload</button>
+        </form>
+        {% endif %}
+    </div>
+
+    <script>
+    document.addEventListener("DOMContentLoaded", function () {
+
+        const ARROW_IDS = ['ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'];
+        const arrowToDir = {
+            'ArrowUp':    'arrowup',
+            'ArrowLeft':  'arrowleft',
+            'ArrowDown':  'arrowdown',
+            'ArrowRight': 'arrowright',
+        };
+
+        const HOLD_DURATION_MS = 2000;
+        const TICK_MS = 30;
+
+        const state = {};
+        ARROW_IDS.forEach(id => { state[id] = { value: 0, timer: null }; });
+
+        function valueToColor(v) {
+            return `hsl(${Math.round(v * 120)}, 100%, 38%)`;
+        }
+
+        function updateButton(id) {
+            const v    = state[id].value;
+            const btn  = document.getElementById(id);
+            const lbl  = document.getElementById('val-' + id);
+            const fill = document.getElementById('fill-' + id);
+            if (v > 0) {
+                const c = valueToColor(v);
+                btn.style.backgroundColor = c;
+                btn.style.borderColor     = c;
+                btn.style.color           = '#fff';
+            } else {
+                btn.style.backgroundColor = '#1a1a1a';
+                btn.style.borderColor     = '#4663FF';
+                btn.style.color           = '#4663FF';
+            }
+            lbl.textContent  = v.toFixed(2);
+            fill.style.width = (v * 100) + '%';
+        }
+
+        function startHold(id) {
+            stopHold(id);
+            state[id].value = 0;
+            updateButton(id);
+            state[id].timer = setInterval(() => {
+                state[id].value = Math.min(1, state[id].value + TICK_MS / HOLD_DURATION_MS);
+                updateButton(id);
+                if (state[id].value >= 1) stopHold(id);
+            }, TICK_MS);
+        }
+
+        function stopHold(id) {
+            if (state[id].timer) {
+                clearInterval(state[id].timer);
+                state[id].timer = null;
+            }
+        }
+
+        ARROW_IDS.forEach(id => {
+            const btn = document.getElementById(id);
+            btn.addEventListener('mousedown',  (e) => { e.preventDefault(); startHold(id); });
+            btn.addEventListener('mouseup',    ()  => stopHold(id));
+            btn.addEventListener('mouseleave', ()  => stopHold(id));
+            btn.addEventListener('touchstart', (e) => { e.preventDefault(); startHold(id); }, { passive: false });
+            btn.addEventListener('touchend',   ()  => stopHold(id));
+        });
+
+        const keyHeld = {};
+        document.addEventListener('keydown', function (event) {
+            if (ARROW_IDS.includes(event.key)) {
+                event.preventDefault();
+                if (!keyHeld[event.key]) {
+                    keyHeld[event.key] = true;
+                    startHold(event.key);
+                }
+            }
+            if (event.key === ' ' || event.keyCode === 32) {
+                event.preventDefault();
+                submitValues();
+                document.getElementById('next').submit();
+            }
+        });
+        document.addEventListener('keyup', function (event) {
+            if (ARROW_IDS.includes(event.key)) {
+                keyHeld[event.key] = false;
+                stopHold(event.key);
+            }
+        });
+
+        document.getElementById('Spacebar').addEventListener('click', function () {
+            submitValues();
+            document.getElementById('next').submit();
+        });
+
+        function submitValues() {
+            const values = {};
+            ARROW_IDS.forEach(id => {
+                values[arrowToDir[id]] = parseFloat(state[id].value.toFixed(3));
+            });
+            console.log('Ordinal values:', values);
+            fetch('/submit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ values: values })
+            }).catch(error => console.error('Submit error:', error));
+        }
+    });
+    </script>
+
+</body>
+</html>
