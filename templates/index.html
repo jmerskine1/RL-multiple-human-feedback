@@ -1,97 +1,33 @@
-<!DOCTYPE html>
-<html lang="en">
+{% extends "base.html" %}
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Human Feedback for PACMAN</title>
-    <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='styles/mainpage.css') }}">
-    <style>
-        .layout {
-            display: flex;
-            gap: 24px;
-            align-items: flex-start;
-            padding: 10px;
-        }
-        .col-left   { flex: 0 0 22%; min-width: 180px; }
-        .col-center { flex: 1; display: flex; flex-direction: column; align-items: center; }
-        .col-right  { flex: 0 0 200px; display: flex; flex-direction: column; align-items: center; gap: 12px; padding-top: 30px; padding-right: 30px; }
-        .key-grid {
-            display: inline-grid;
-            grid-template-columns: repeat(3, 50px);
-            grid-template-rows: repeat(2, 50px);
-            gap: 4px;
-        }
-        .arrow_button  { width: 50px; height: 50px; font-size: 18px; }
-        .spacebar-button { width: 160px; }
-        .nav-buttons { display: flex; gap: 8px; }
-    </style>
-</head>
+{% block title %}Human Feedback for PACMAN{% endblock %}
 
-<body>
-    <h1>Human feedback for Pacman</h1>
+{% block extra_styles %}
+    .arrow_button  { width: 50px; height: 50px; font-size: 18px; }
+{% endblock %}
 
-    <div class="layout">
+{% block instruction_title %}To provide feedback to our RL pacman agent:{% endblock %}
 
-        <!-- LEFT: instructions -->
-        <div class="col-left">
-            <div class="left-aligned-text">
-                <h2><span class="thicker-underlined-text">Instructions</span></h2><br>
-                <h3>To provide feedback to our RL pacman agent:</h3>
-                <div class="numbered-list">
-                    <ol>
-                        <li>Look at the current state. Decide which direction would be best for Pacman to move.</li><br>
-                        <li>Select that direction using the arrow buttons or your arrow keys. Faded sprites show where Pacman and the ghost were in the last two steps.</li><br>
-                        <li>Submit your feedback by clicking 'Submit' or pressing SPACE. This moves to the next time step.</li><br>
-                        <li>When an episode ends a button will appear to start a new one.</li><br>
-                        <li>You can skip between time steps using 'Previous' and 'Next' without submitting.</li>
-                    </ol>
-                </div>
-            </div>
-        </div>
+{% block instructions %}
+    <li>Look at the current state. Decide which direction would be best for Pacman to move.</li><br>
+    <li>Select that direction using the arrow buttons or your arrow keys. Faded sprites show where Pacman and the ghost were in the last two steps.</li><br>
+    <li>Submit your feedback by clicking 'Submit' or pressing SPACE. This moves to the next time step.</li><br>
+{% endblock %}
 
-        <!-- CENTER: current state -->
-        <div class="col-center">
-            <h2>Current State</h2>
-            <img src='data:image/png;base64,{{img2}}' style="width:100%; max-width:420px;" />
-        </div>
-
-        <!-- RIGHT: feedback controls -->
-        <div class="col-right">
-            <h2>Feedback</h2>
-            <div class="key-grid">
-                <div></div>
-                <button class="arrow_button" id="ArrowUp">↑</button>
-                <div></div>
-                <button class="arrow_button" id="ArrowLeft">←</button>
-                <button class="arrow_button" id="ArrowDown">↓</button>
-                <button class="arrow_button" id="ArrowRight">→</button>
-            </div>
-            <button class="spacebar-button" id="Spacebar">Submit</button>
-            <div class="nav-buttons">
-                <form action="/previous" method="post">
-                    <button class="direction-button" type="submit">Previous</button>
-                </form>
-                <form action="/next" id="next" method="post">
-                    <button class="direction-button" type="submit">Next</button>
-                </form>
-            </div>
-        </div>
-
+{% block feedback_controls %}
+    <div class="key-grid">
+        <div></div>
+        <button class="arrow_button {{ 'disabled' if not valid_moves[0] }}" id="ArrowUp">↑</button>
+        <div></div>
+        <button class="arrow_button {{ 'disabled' if not valid_moves[3] }}" id="ArrowLeft">←</button>
+        <button class="arrow_button {{ 'disabled' if not valid_moves[1] }}" id="ArrowDown">↓</button>
+        <button class="arrow_button {{ 'disabled' if not valid_moves[2] }}" id="ArrowRight">→</button>
     </div>
+{% endblock %}
 
-    <div>
-        {% if session_status %}
-        <h1>Episode finished — click to start a new episode.</h1>
-        <form action="/newepisode" method="post">
-            <button type="submit">Reload</button>
-        </form>
-        {% endif %}
-    </div>
-
-    <script>
+{% block scripts %}
+<script>
     document.addEventListener("DOMContentLoaded", function () {
-
         var arrowButtons = {
             "ArrowUp":    document.getElementById("ArrowUp"),
             "ArrowLeft":  document.getElementById("ArrowLeft"),
@@ -100,6 +36,10 @@
         };
 
         var currentArrowButton = null;
+
+        function isButtonDisabled(btn) {
+            return btn && btn.classList.contains('disabled');
+        }
 
         document.getElementById("Spacebar").addEventListener("click", function () {
             if (currentArrowButton) {
@@ -110,6 +50,7 @@
 
         Object.values(arrowButtons).forEach(function (button) {
             button.addEventListener("click", function () {
+                if (isButtonDisabled(button)) return;
                 if (currentArrowButton) currentArrowButton.classList.remove("active");
                 button.classList.add("active");
                 currentArrowButton = button;
@@ -118,10 +59,12 @@
 
         document.addEventListener("keydown", function (event) {
             if (arrowButtons.hasOwnProperty(event.key)) {
+                var button = arrowButtons[event.key];
+                if (isButtonDisabled(button)) return;
                 event.preventDefault();
                 if (currentArrowButton) currentArrowButton.classList.remove("active");
-                arrowButtons[event.key].classList.add("active");
-                currentArrowButton = arrowButtons[event.key];
+                button.classList.add("active");
+                currentArrowButton = button;
             }
             if (event.key === " " || event.keyCode === 32) {
                 event.preventDefault();
@@ -140,7 +83,5 @@
             }).catch(error => console.error('Error:', error));
         }
     });
-    </script>
-
-</body>
-</html>
+</script>
+{% endblock %}

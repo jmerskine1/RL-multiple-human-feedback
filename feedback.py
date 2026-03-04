@@ -369,6 +369,44 @@ def generate_single_feedback(state, action_list, C, optimal_actions, type='binar
     return ret
 
 
+def get_active_utility(s, a, agent_h, mode='count', no_reward=False, var_Q_base=100):
+    """
+    Calculate the active learning utility for a single state-action pair.
+    
+    Parameters:
+    s (int): State index
+    a (int): Action index
+    agent_h (agent): The agent instance
+    mode (str): Active learning mode ('count' or 'entropy')
+    no_reward (bool): Whether the agent is learning without reward
+    var_Q_base (float): Base variance for entropy calculation
+    
+    Returns:
+    float: Utility value (higher means feedback is more needed)
+    """
+    if mode == 'count':
+        if no_reward:
+            denom = np.abs(agent_h.hp[:, s, a] - agent_h.hm[:, s, a]).sum()
+        else:
+            nsa = agent_h.Nsa[s, a] if hasattr(agent_h, 'Nsa') else 0.0
+            denom = nsa + np.abs(agent_h.hp[:, s, a] - agent_h.hm[:, s, a]).sum()
+        return 1.0 / np.maximum(denom, 0.1)
+    
+    elif mode == 'entropy':
+        if not hasattr(agent_h, 'psi_for_hr'):
+            return 1.0 # default high utility if VI parameters are not initialized
+        return optimality_entropy(
+            s, a, 
+            agent_h.Q, 
+            agent_h.Nsa if hasattr(agent_h, 'Nsa') else np.zeros_like(agent_h.Q), 
+            agent_h.hp, 
+            agent_h.hm, 
+            agent_h.psi_for_hr, 
+            agent_h.psi_for_hw,
+            var_Q_base=var_Q_base
+        )
+    return 0.0
+
 # Generate various type of feedback with a specified Active feedback method
 def generate_feedback(trajectory,
                       C,

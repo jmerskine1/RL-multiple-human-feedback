@@ -1,0 +1,258 @@
+"""
+main_gcp.py — GCP-optimised Flask app for Option-B hybrid deployment.
+
+What's different from main.py
+------------------------------
+* NO matplotlib — frames are pre-rendered by bundle_generator.py (local).
+* NO Redis / KVSession — sessions use signed cookies (tiny payload).
+* NO episode simulation on startup — loads pre-rendered bundle from GCS.
+* Confidence plot rendered client-side with Chart.js (no server matplotlib).
+* Brain updates (numpy only) happen on /submit and are persisted to GCS.
+* When a bundle is exhausted the participant sees a friendly "processing" page
+  and the researcher runs bundle_generator.py to upload the next batch.
+
+GCS layout (managed by gcs_utils.py)
+--------------------------------------
+  bundles/<hash>/bundle.pkl          written by bundle_generator.py (local)
+  brains/<hash>/brain.pkl            read + written by this app
+  feedback/<hash>/annotations.jsonl  append-only feedback log
+  feedback/<hash>/labelled_states.json
+"""
+
+import os
+import json
+import pickle
+
+from flask import Flask, render_template, request, session, jsonify
+import numpy as np
+
+from feedback import Feedback
+from trainer import PacmanTrainer
+from gcs_utils import (
+    download_bundle, download_brain, upload_brain,
+    append_annotation, add_labelled_state,
+)
+
+# ── App setup ──────────────────────────────────────────────────────────────────
+app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET", "change-me-in-production")
+
+GCS_BUCKET = os.environ.get("GCS_BUCKET", "my-pacman-bucket")  # set via env var
+
+# ── Config ─────────────────────────────────────────────────────────────────────
+FEEDBACK_TYPE   = os.environ.get("FEEDBACK_TYPE", "ordinal-feedback")
+ACTIVE_LEARNING_MODE = "count"
+
+_FEEDBACK_TEMPLATES = {
+    "binary-feedback":  "index.html",
+    "ranked-feedback":  "index_ranked.html",
+    "ordinal-feedback": "index_ordinal.html",
+}
+
+def get_template():
+    return _FEEDBACK_TEMPLATES.get(FEEDBACK_TYPE, "index.html")
+
+# ── In-memory bundle cache ─────────────────────────────────────────────────────
+# Bundles are large (pre-rendered base64 images). We cache them in process
+# memory so Cloud Run doesn't re-download from GCS on every request.
+# With --workers=1 in gunicorn a single instance handles all requests for the
+# session, keeping the cache coherent.
+_bundle_cache: dict[str, dict] = {}
+
+def _load_bundle(session_hash: str) -> dict | None:
+    if session_hash not in _bundle_cache:
+        bundle = download_bundle(session_hash, GCS_BUCKET)
+        if bundle:
+            _bundle_cache[session_hash] = bundle
+    return _bundle_cache.get(session_hash)
+
+def _evict_bundle(session_hash: str) -> None:
+    """Remove a bundle from cache (e.g. after it's been fully consumed)."""
+    _bundle_cache.pop(session_hash, None)
+
+    # Also delete from GCS so bundle_generator knows a new one is needed
+    from gcs_utils import get_bucket
+    blob = get_bucket(GCS_BUCKET).blob(f"bundles/{session_hash}/bundle.pkl")
+    if blob.exists():
+        blob.delete()
+
+
+# ── Session helpers ────────────────────────────────────────────────────────────
+# The cookie session stores only lightweight data:
+#   session_hash       — maps to GCS objects
+#   current_queue_idx  — position within selected_indices
+#   Ce_list            — list of floats (grows with feedback, ~8B each)
+
+def _ensure_session():
+    if "session_hash" not in session:
+        import uuid
+        session["session_hash"]      = uuid.uuid4().hex[:12]
+        session["current_queue_idx"] = 0
+        session["Ce_list"]           = [0.5]
+
+def _render(bundle: dict, **extra):
+    idx      = bundle["selected_indices"][session["current_queue_idx"]]
+    img2     = bundle["all_plots"][idx]
+    valid_mv = bundle["all_valid_moves"][idx]
+    queue_pos = session["current_queue_idx"] + 1
+    queue_len = len(bundle["selected_indices"])
+    return render_template(
+        get_template(),
+        img2=img2,
+        img1="",                   # not used in GCP templates
+        graph="",                  # confidence plot done client-side
+        ce_list=json.dumps(session.get("Ce_list", [0.5])),
+        queue_pos=queue_pos,
+        queue_len=queue_len,
+        valid_moves=valid_mv,
+        session_status=bundle["all_status"][idx],
+        **extra,
+    )
+
+
+# ── Routes ─────────────────────────────────────────────────────────────────────
+
+@app.route("/")
+def index():
+    _ensure_session()
+    session["current_queue_idx"] = 0
+
+    bundle = _load_bundle(session["session_hash"])
+    if not bundle:
+        return render_template("waiting.html",
+                               session_hash=session["session_hash"])
+
+    return _render(bundle)
+
+
+@app.route("/next", methods=["POST"])
+def nextFrame():
+    _ensure_session()
+    bundle = _load_bundle(session["session_hash"])
+    if not bundle:
+        return render_template("waiting.html",
+                               session_hash=session["session_hash"])
+
+    q = session["current_queue_idx"]
+    if q + 1 < len(bundle["selected_indices"]):
+        session["current_queue_idx"] = q + 1
+
+    return _render(bundle)
+
+
+@app.route("/previous", methods=["POST"])
+def previousFrame():
+    _ensure_session()
+    bundle = _load_bundle(session["session_hash"])
+    if not bundle:
+        return render_template("waiting.html",
+                               session_hash=session["session_hash"])
+
+    q = session["current_queue_idx"]
+    if q > 0:
+        session["current_queue_idx"] = q - 1
+
+    return _render(bundle)
+
+
+@app.route("/submit", methods=["POST"])
+def submit():
+    _ensure_session()
+    bundle = _load_bundle(session["session_hash"])
+    if not bundle:
+        return render_template("waiting.html",
+                               session_hash=session["session_hash"])
+
+    # ── 1. Rebuild Feedback object from human input ───────────────────────────
+    data          = request.get_json()
+    arrow_dict    = {"arrowup": "n", "arrowdown": "s", "arrowleft": "w", "arrowright": "e"}
+    idx           = bundle["selected_indices"][session["current_queue_idx"]]
+    obs           = bundle["all_obs"][idx]
+    taken_action  = bundle["all_actions"][idx]
+    valid_moves   = bundle["all_valid_moves"][idx]          # [n, s, e, w]
+    action_list   = ["n", "s", "e", "w"]
+    invalid_idx   = [i for i, v in enumerate(valid_moves) if not v]
+    n_actions     = len(action_list)
+
+    if FEEDBACK_TYPE == "binary-feedback":
+        feedback_string = arrow_dict[data["arrow"]]
+        action = action_list.index(feedback_string)
+        if action == taken_action:
+            fb_obj = Feedback(state=obs, good_actions=[action], conf_good_actions=1.0)
+        else:
+            fb_obj = Feedback(state=obs, bad_actions=[action], conf_bad_actions=1.0)
+        db_feedback = feedback_string
+
+    elif FEEDBACK_TYPE == "ranked-feedback":
+        ranking = data["ranking"]
+        Q_syn = np.zeros(n_actions)
+        for rank_0, arrow_str in enumerate(ranking):
+            Q_syn[action_list.index(arrow_dict[arrow_str])] = n_actions - 1 - rank_0
+        for i in invalid_idx:
+            Q_syn[i] = -1
+        sorted_idx = np.argsort(-Q_syn).tolist()
+        fb_obj = Feedback(state=obs,
+                          good_actions=sorted_idx[:2], bad_actions=sorted_idx[2:],
+                          conf_good_actions=1.0, conf_bad_actions=1.0)
+        db_feedback = json.dumps(ranking)
+
+    elif FEEDBACK_TYPE == "ordinal-feedback":
+        values = data["values"]
+        Q_syn = np.zeros(n_actions)
+        for arrow_str, val in values.items():
+            Q_syn[action_list.index(arrow_dict[arrow_str])] = float(val)
+        for i in invalid_idx:
+            Q_syn[i] = 0.0
+        fb_obj = Feedback(state=obs, good_actions=Q_syn.tolist(), conf_good_actions=1.0)
+        db_feedback = json.dumps(values)
+
+    else:
+        return jsonify({"error": "unknown FEEDBACK_TYPE"}), 400
+
+    # ── 2. Load brain, apply feedback update (pure numpy) ────────────────────
+    trainer = PacmanTrainer(
+        algID="tabQL_Cest_vi_t2",
+        env_size=bundle.get("env_size", "small"),
+        active_feedback_type=ACTIVE_LEARNING_MODE,
+    )
+    brain = download_brain(session["session_hash"], GCS_BUCKET)
+    if brain:
+        trainer.load_brain(brain)
+
+    trainer.agent.act(
+        taken_action, obs, 0, False,
+        [[fb_obj]], 0.5, update_Cest=True
+    )
+
+    # ── 3. Persist updated brain and feedback log ─────────────────────────────
+    upload_brain(session["session_hash"], trainer.get_brain(), GCS_BUCKET)
+    add_labelled_state(session["session_hash"], int(obs), GCS_BUCKET)
+    append_annotation(session["session_hash"], {
+        "obs":       int(obs),
+        "action":    action_list[taken_action],
+        "feedback":  db_feedback,
+        "ce":        float(trainer.agent.Ce[0]),
+    }, GCS_BUCKET)
+
+    # ── 4. Update Ce_list in session cookie ──────────────────────────────────
+    ce_list = session.get("Ce_list", [0.5])
+    ce_list.append(float(trainer.agent.Ce[0]))
+    session["Ce_list"] = ce_list
+
+    # ── 5. Advance queue or request new bundle ────────────────────────────────
+    q = session["current_queue_idx"]
+    if q + 1 < len(bundle["selected_indices"]):
+        session["current_queue_idx"] = q + 1
+        return _render(bundle)
+    else:
+        # Bundle exhausted — evict cache + GCS copy, ask researcher to generate next
+        _evict_bundle(session["session_hash"])
+        return render_template("waiting.html",
+                               session_hash=session["session_hash"])
+
+
+# ── Entry point ────────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port, debug=False)
