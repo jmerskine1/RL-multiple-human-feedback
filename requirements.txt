@@ -1,0 +1,7 @@
+flask==2.3.3
+flask_sqlalchemy
+flask_kvsession
+redis
+matplotlib
+scipy
+werkzeug==2.3.7

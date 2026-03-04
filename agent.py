@@ -9,12 +9,36 @@ Agent class
 import numpy as np
 from scipy.special import psi
 import pickle
+import random
 
 import mylib
+
+class ReplayBuffer():
+    def __init__(self, capacity=10000):
+        self.capacity = capacity
+        self.buffer = []
+        self.position = 0
+
+    def push(self, state, action, reward, next_state, done):
+        if len(self.buffer) < self.capacity:
+            self.buffer.append(None)
+        self.buffer[self.position] = (state, action, reward, next_state, done)
+        self.position = (self.position + 1) % self.capacity
+
+    def sample(self, batch_size):
+        return random.sample(self.buffer, batch_size)
+    
+    def clear(self):
+        self.buffer = []
+        self.position = 0
+
+    def __len__(self):
+        return len(self.buffer)
 
 class agent():
 
     def __init__(self, algID, nStates, nActions, a=100.0, b=100.0, C_fixed=None):
+        self.replay_buffer = ReplayBuffer(capacity=10000)
         self.reset(algID, nStates, nActions, a, b, C_fixed)
         return
         
@@ -23,6 +47,7 @@ class agent():
         self.gamma    = 0.9 # discount factor
         self.alpha    = 0.05 #1.0/128.0 # learning rate
         self.eps      = 0.1 # e-greedy policy parametre (probability to select exploration action)
+        self.batch_size = 32
         
         self.Q        = None         # value function - Q
         self.prev_obs = None         # previous observation
@@ -49,6 +74,8 @@ class agent():
         self.b = b # prior parameter for C
         # Fixed C (without C estimation)
         self.C_fixed = C_fixed
+        # clear replay buffer
+        self.replay_buffer.clear()
         return
     
     
@@ -80,7 +107,27 @@ class agent():
         # Q-learning (no feedback)
         elif self.algID == 'tabQLgreedy':
             action = self.tabQLgreedy(obs, rw)
-        
+
+        # Q-learning (no feedback)
+        elif self.algID == 'tabQLrandom':
+            action = self.tabQLrandom(obs, rw)
+        # Add these to your existing elif chain in the act() method:
+
+        elif self.algID == 'tabQL_IPL':
+            action = self.tabQL_IPL(obs, rw, done, fb, type=1, update_Cest=update_Cest)
+
+        elif self.algID == 'tabQL_visit_active':
+            action = self.tabQL_visit_active(obs, rw, done, fb, type=1, update_Cest=update_Cest)
+
+        elif self.algID == 'tabQL_majority_vote':
+            action = self.tabQL_majority_vote(obs, rw, done, fb, type=1, update_Cest=update_Cest)
+
+        elif self.algID == 'tabQL_uncertainty_active':
+            action = self.tabQL_uncertainty_active(obs, rw, done, fb, type=1, update_Cest=update_Cest)
+
+        elif self.algID == 'tabQL_dawid_skene':
+            action = self.tabQL_dawid_skene(obs, rw, done, fb, type=1, update_Cest=update_Cest)
+
         else:
             raise ValueError(f'{self.algID}: Invalid algorithm option ID')
         
@@ -90,18 +137,63 @@ class agent():
 
         return action
     
-    
+    def update_from_demo(self, state, action):
+            # initialise Q
+        if self.Q is None:
+            self.Q = np.zeros([self.nStates, self.nActions]) # initialise Q function (s,a)
+        self.Q[state][action] += 1  # Very simple imitation (can be turned into a softmax or ML update)
+    # @profile
     def _collect_feedback(self, feedback_list):
         # collect feedback and update self.hp and self.hm. 
-        for n, fb in enumerate(feedback_list):
-            # if fb.good_actions.shape[1] > 0:
-            for m in range(fb.good_actions.shape[0]): # support multiple set of good/bad actions with different confidence level
-                for a in fb.good_actions[m]:
-                    self.hp[n, fb.state, a] = self.hp[n, fb.state, a] + fb.conf_good_actions[m]
-            # if fb.bad_actions.shape[1] > 0:
-            for m in range(fb.bad_actions.shape[0]):
-                for a in fb.bad_actions[m]:
-                    self.hm[n, fb.state, a] = self.hm[n, fb.state, a] + fb.conf_bad_actions[m]
+        for n, fb_list in enumerate(feedback_list): # n for trainer index
+            for fb in fb_list:
+                if not hasattr(fb, 'state') or fb.state is None:
+                    continue
+                
+                # Check for ranked or ordinal feedback
+                good_actions = fb.good_actions if hasattr(fb, 'good_actions') else []
+                bad_actions = fb.bad_actions if hasattr(fb, 'bad_actions') else []
+                
+                # Check for ordinal feedback (list of floats)
+                if len(good_actions) > 0 and isinstance(good_actions[0], float):
+                    vals = good_actions
+                    for i, v in enumerate(vals):
+                        # Distance from 0.5 determines confidence (near 0.5 = low confidence)
+                        confidence = np.abs(v - 0.5) * 2.0
+                        if v > 0.5:
+                            # Better than 0.5: positive advice
+                            self.hp[n, fb.state, i] += confidence * fb.conf_good_actions
+                        elif v < 0.5:
+                            # Worse than 0.5: negative advice
+                            self.hm[n, fb.state, i] += confidence * fb.conf_good_actions
+
+                # ranked-feedback now provides good_actions and bad_actions
+                # with bottom two in bad_actions.
+                elif hasattr(fb, 'good_actions') and hasattr(fb, 'bad_actions') and (len(fb.good_actions) + len(fb.bad_actions) > 2):
+                    good_actions = fb.good_actions
+                    bad_actions = fb.bad_actions
+                    
+                    # Update good actions with confidence based on rank
+                    for i, a in enumerate(good_actions):
+                        # i=0 is best. Confidence decreases as rank increases.
+                        conf = fb.conf_good_actions * (1.0 - i / (len(good_actions) + len(bad_actions) - 1))
+                        self.hp[n, fb.state, int(a)] += conf
+                    
+                    # Update bad actions
+                    for i, a in enumerate(bad_actions):
+                        # Last index is worst.
+                        total_idx = len(good_actions) + i
+                        conf = fb.conf_bad_actions * (total_idx / (len(good_actions) + len(bad_actions) - 1))
+                        self.hm[n, fb.state, int(a)] += conf
+
+                else:
+                    # Traditional good/bad action sets (or single-action feedback)
+                    if hasattr(fb, 'good_actions'):
+                        for a in fb.good_actions:
+                            self.hp[n, fb.state, int(a)] = self.hp[n, fb.state, int(a)] + fb.conf_good_actions
+                    if hasattr(fb, 'bad_actions'):
+                        for a in fb.bad_actions:
+                            self.hm[n, fb.state, int(a)] = self.hm[n, fb.state, int(a)] + fb.conf_bad_actions
                             
     # Tabular one step Temporal Difference
     def tabQLgreedy(self, obs, rw):
@@ -120,9 +212,41 @@ class agent():
             
             td_err = (rw + self.gamma * max(self.Q[curr_state_idx,:])) - self.Q[prev_state_idx, prev_action_idx] 
             self.Q[prev_state_idx, prev_action_idx] += self.alpha * td_err
-            
+        # print("Q:", self.Q[curr_state_idx])
+        max_value = np.max(self.Q[curr_state_idx])  # Maximum value for the current state 
+        indices = np.flatnonzero(self.Q[curr_state_idx] == max_value)  # Indices of all max values
+        # print("indices: ",indices)
+        action = np.random.choice(indices)  # Randomly pick one of them
+
         # Greedy policy (always select the best action)
-        action = np.argmax(self.Q[curr_state_idx,:])
+        # action = np.argmax(self.Q[curr_state_idx,:])
+
+        return action
+    
+    # Tabular one step Temporal Difference
+    def tabQLrandom(self, obs, rw):
+       
+        # initialise Q
+        if self.Q is None:
+            self.Q = np.zeros([self.nStates, self.nActions]) # initialise Q function (s,a)
+            
+        curr_state_idx = obs
+        
+        # check if this is the first time...
+        if self.prev_obs is not None:
+            # one step TD algorithm
+            prev_state_idx = self.prev_obs
+            prev_action_idx = self.prev_act
+            
+        
+        # print("Q:", self.Q[curr_state_idx])
+        
+        
+        # print("indices: ",indices)
+        
+        action = np.random.randint(len(self.Q[curr_state_idx]))
+        # Greedy policy (always select the best action)
+        # action = np.argmax(self.Q[curr_state_idx,:])
 
         return action
 
@@ -145,6 +269,7 @@ class agent():
             self.sum_of_wrong_feedback = np.zeros(self.nTrainer) # sum of the expected number of wrong feedbacks (\sum h^w)
             self.psi_for_hr = psi(self.sum_of_right_feedback + self.a) - psi(self.sum_of_right_feedback + self.sum_of_wrong_feedback + self.a + self.b) # psi( \sum h^r + alpha ) - psi( \sum h^r + \sum h^w + alpha + beta )
             self.psi_for_hw = psi(self.sum_of_wrong_feedback + self.b) - psi(self.sum_of_right_feedback + self.sum_of_wrong_feedback + self.a + self.b) # psi( \sum h^w + alpha ) - psi( \sum h^r + \sum h^w + alpha + beta )
+            self.Nsa = np.zeros((self.nStates, self.nActions)) # number of the agent visiting (s,a) pair
             
             # set prior parameters for C
             if hasattr(self.a, "__len__"):
@@ -166,34 +291,48 @@ class agent():
             # type1 (general case)
             for trainerIdx in range(self.nTrainer):
                 for i in range(self.nActions):
-                    l_pr[i] += self.hp[trainerIdx, curr_state_idx, i] * self.psi_for_hr[trainerIdx] + self.hm[trainerIdx, curr_state_idx, i] * self.psi_for_hw[trainerIdx]
+                    l_pr[i] += self.hp[trainerIdx, curr_state_idx, i] * self.psi_for_hr[trainerIdx] + \
+                               self.hm[trainerIdx, curr_state_idx, i] * self.psi_for_hw[trainerIdx]
         else:
             # type2 (only one optimal action)
             for trainerIdx in range(self.nTrainer):
                 for i in range(self.nActions):
-                    l_pr[i] += np.sum(self.hp[trainerIdx, curr_state_idx, i] * self.psi_for_hr[trainerIdx] + self.hm[trainerIdx, curr_state_idx, i] * self.psi_for_hw[trainerIdx]) \
-                             - np.sum(self.hm[trainerIdx, curr_state_idx, i] * self.psi_for_hr[trainerIdx] + self.hp[trainerIdx, curr_state_idx, i] * self.psi_for_hw[trainerIdx])
+                    l_pr[i] += np.sum(self.hp[trainerIdx, curr_state_idx, i] * self.psi_for_hr[trainerIdx] + 
+                                      self.hm[trainerIdx, curr_state_idx, i] * self.psi_for_hw[trainerIdx]) \
+                             - np.sum(self.hm[trainerIdx, curr_state_idx, i] * self.psi_for_hr[trainerIdx] + 
+                                      self.hp[trainerIdx, curr_state_idx, i] * self.psi_for_hw[trainerIdx])
             
-        l_pr = l_pr - mylib.logsum(l_pr)            
-        pr = np.exp(l_pr)
+        l_pr_norm = l_pr - mylib.logsum(l_pr)            
+        pr = np.exp(l_pr_norm)
         
         # decide action based on pr[] probability distribution
         action = np.min( np.where( np.random.rand() < np.cumsum(pr) ) )        
-
         
+        # update Nsa (number of the agent visiting (s,a) pair)
+        self.Nsa[curr_state_idx, action] += 1
+
         # check if this is the first time...
         if self.prev_obs is not None:
+            # push trajectory to replay buffer
+            self.replay_buffer.push(self.prev_obs, self.prev_act, rw, curr_state_idx, done)
+
             # one step TD algorithm
-            prev_state_idx = self.prev_obs
-            prev_action_idx = self.prev_act
             
-            #td_err = (rw + self.gamma * np.sum(self.Q[curr_state_idx,:] * pr)) - self.Q[prev_state_idx, prev_action_idx] 
-            max_a_idx = np.argmax(pr)
-            if done:
-                td_err = (rw) - self.Q[prev_state_idx, prev_action_idx]             
-            else:
-                td_err = (rw + self.gamma * self.Q[curr_state_idx, max_a_idx]) - self.Q[prev_state_idx, prev_action_idx] 
-            self.Q[prev_state_idx, prev_action_idx] += self.alpha * td_err
+            if len(self.replay_buffer) >= self.batch_size:
+                trajectories = zip(*self.replay_buffer.sample(self.batch_size))
+                for state_, action_, reward_, next_state_, done_ in zip(*trajectories):
+                    # If this is not the first step, apply Q-learning update
+                    self.Q[state_, action_] += \
+                        self.alpha * (reward_ + (done_ == False) * self.gamma * np.max(self.Q[next_state_]) - self.Q[state_, action_])
+            
+            # prev_state_idx = self.prev_obs
+            # prev_action_idx = self.prev_act
+            # max_a_idx = np.argmax(pr)
+            # if done:
+            #     td_err = (rw) - self.Q[prev_state_idx, prev_action_idx]             
+            # else:
+            #     td_err = (rw + self.gamma * self.Q[curr_state_idx, max_a_idx]) - self.Q[prev_state_idx, prev_action_idx] 
+            # self.Q[prev_state_idx, prev_action_idx] += self.alpha * td_err
         
             # Human feedback updates
             self._collect_feedback(fb)
@@ -263,6 +402,8 @@ class agent():
 
             # set the new Ce (avoid 0.0 and 1.0)
             self.Ce = np.clip(Ce, 0.001, 0.999)
+            self.psi_for_hr = np.clip(self.psi_for_hr, -6.91, 0.0) # -6.91 = log(1e-3) (log of the smallest number)
+            self.psi_for_hw = np.clip(self.psi_for_hw, -6.91, 0.0) # -6.91 = log(1e-3) (log of the smallest number)
         return action
 
     def tabQL_Cest_em(self, obs, rw, done, fb, type=2, update_Cest=False):
@@ -575,3 +716,241 @@ class agent():
             if d is not []:
                 self.d = d
         return
+    
+    def tabQL_IPL(self, obs, rw, done, fb, type=1, update_Cest=None):
+        """
+        Inverse Preference Learning - learns directly from preferences without reward model
+        """
+        # Initialize Q
+        if self.Q is None:
+            self.Q = np.zeros([self.nStates, self.nActions])
+            self.preference_counts = np.zeros([self.nStates, self.nActions])
+        
+        curr_state_idx = obs
+        
+        # Collect preference feedback and update preference counts
+        if fb:
+            for trainer_fb in fb:
+                for feedback in trainer_fb:
+                    if hasattr(feedback, 'good_actions'):
+                        for a in feedback.good_actions:
+                            self.preference_counts[feedback.state, int(a)] += 1
+                    if hasattr(feedback, 'bad_actions'):
+                        for a in feedback.bad_actions:
+                            self.preference_counts[feedback.state, int(a)] -= 1
+        
+        # Action selection based on preference-weighted Q-values
+        if np.sum(np.abs(self.preference_counts[curr_state_idx, :])) > 0:
+            # Use preference information
+            pref_weights = self.preference_counts[curr_state_idx, :] + 1e-6  # avoid zeros
+            weighted_q = self.Q[curr_state_idx, :] + 0.1 * pref_weights
+            action = np.argmax(weighted_q)
+        else:
+            # Standard greedy action
+            action = np.argmax(self.Q[curr_state_idx, :])
+        
+        # Q-learning update
+        if self.prev_obs is not None:
+            prev_state_idx = self.prev_obs
+            prev_action_idx = self.prev_act
+            
+            # Use preference signal as reward proxy
+            pref_reward = np.mean([np.sum(self.preference_counts[prev_state_idx, :]) for _ in fb]) if fb else 0
+            td_err = (rw + pref_reward + self.gamma * np.max(self.Q[curr_state_idx, :])) - self.Q[prev_state_idx, prev_action_idx]
+            self.Q[prev_state_idx, prev_action_idx] += self.alpha * td_err
+        
+        return action
+
+    def tabQL_visit_active(self, obs, rw, done, fb, type=1, update_Cest=None):
+        """
+        Visit-count based active learning - prioritizes least visited state-action pairs
+        """
+        # Initialize Q and visit counts
+        if self.Q is None:
+            self.Q = np.zeros([self.nStates, self.nActions])
+            self.visit_counts = np.zeros([self.nStates, self.nActions])
+        
+        curr_state_idx = obs
+        
+        # Update visit count
+        if self.prev_obs is not None and self.prev_act is not None:
+            self.visit_counts[self.prev_obs, self.prev_act] += 1
+        
+        # Action selection: epsilon-greedy with visit-based exploration
+        if np.random.rand() < self.eps:
+            # Choose least visited action in current state
+            action = np.argmin(self.visit_counts[curr_state_idx, :])
+        else:
+            # Greedy action selection
+            action = np.argmax(self.Q[curr_state_idx, :])
+        
+        # Standard Q-learning update with feedback shaping
+        if self.prev_obs is not None:
+            prev_state_idx = self.prev_obs
+            prev_action_idx = self.prev_act
+            
+            # Standard TD update
+            td_err = (rw + self.gamma * np.max(self.Q[curr_state_idx, :])) - self.Q[prev_state_idx, prev_action_idx]
+            self.Q[prev_state_idx, prev_action_idx] += self.alpha * td_err
+            
+            # Apply feedback shaping if available
+            if fb:
+                self._collect_feedback(fb)
+                feedback_bonus = 0
+                for trainer_idx in range(len(fb)):
+                    feedback_bonus += (self.hp[trainer_idx, prev_state_idx, prev_action_idx] - 
+                                    self.hm[trainer_idx, prev_state_idx, prev_action_idx]) * 0.1
+                self.Q[prev_state_idx, prev_action_idx] += feedback_bonus
+        
+        return action
+
+    def tabQL_majority_vote(self, obs, rw, done, fb, type=1, update_Cest=None):
+        """
+        Simple majority vote aggregation across crowd workers
+        """
+        # Initialize Q and feedback aggregation
+        if self.Q is None:
+            self.Q = np.zeros([self.nStates, self.nActions])
+            self.nTrainer = len(fb) if fb else 1
+            self.hp = np.zeros([self.nTrainer, self.nStates, self.nActions])
+            self.hm = np.zeros([self.nTrainer, self.nStates, self.nActions])
+            self.majority_weights = np.ones([self.nStates, self.nActions])
+        
+        curr_state_idx = obs
+        
+        # Collect feedback and compute majority vote
+        if fb:
+            self._collect_feedback(fb)
+            
+            # Simple majority voting per state-action pair
+            for s in range(self.nStates):
+                for a in range(self.nActions):
+                    pos_votes = np.sum(self.hp[:, s, a])
+                    neg_votes = np.sum(self.hm[:, s, a])
+                    if pos_votes + neg_votes > 0:
+                        self.majority_weights[s, a] = (pos_votes - neg_votes) / (pos_votes + neg_votes)
+        
+        # Action selection with majority vote weighting
+        weighted_q = self.Q[curr_state_idx, :] + 0.1 * self.majority_weights[curr_state_idx, :]
+        action = np.argmax(weighted_q)
+        
+        # Standard Q-learning update
+        if self.prev_obs is not None:
+            prev_state_idx = self.prev_obs
+            prev_action_idx = self.prev_act
+            
+            td_err = (rw + self.gamma * np.max(self.Q[curr_state_idx, :])) - self.Q[prev_state_idx, prev_action_idx]
+            self.Q[prev_state_idx, prev_action_idx] += self.alpha * td_err
+            
+            # Apply majority vote shaping
+            majority_bonus = self.majority_weights[prev_state_idx, prev_action_idx] * 0.05
+            self.Q[prev_state_idx, prev_action_idx] += majority_bonus
+        
+        return action
+
+    def tabQL_uncertainty_active(self, obs, rw, done, fb, type=1, update_Cest=None):
+        """
+        Uncertainty-based active learning using Q-value variance
+        """
+        # Initialize Q and uncertainty tracking
+        if self.Q is None:
+            self.Q = np.zeros([self.nStates, self.nActions])
+            self.Q_variance = np.ones([self.nStates, self.nActions])  # Initialize with high uncertainty
+            self.update_counts = np.zeros([self.nStates, self.nActions])
+        
+        curr_state_idx = obs
+        
+        # Action selection based on uncertainty
+        if np.random.rand() < self.eps:
+            # Choose action with highest uncertainty
+            action = np.argmax(self.Q_variance[curr_state_idx, :])
+        else:
+            # Greedy action selection
+            action = np.argmax(self.Q[curr_state_idx, :])
+        
+        # Q-learning update with uncertainty tracking
+        if self.prev_obs is not None:
+            prev_state_idx = self.prev_obs
+            prev_action_idx = self.prev_act
+            
+            # Compute TD error
+            td_err = (rw + self.gamma * np.max(self.Q[curr_state_idx, :])) - self.Q[prev_state_idx, prev_action_idx]
+            
+            # Update Q-value
+            old_q = self.Q[prev_state_idx, prev_action_idx]
+            self.Q[prev_state_idx, prev_action_idx] += self.alpha * td_err
+            
+            # Update uncertainty (variance) using online variance formula
+            self.update_counts[prev_state_idx, prev_action_idx] += 1
+            n = self.update_counts[prev_state_idx, prev_action_idx]
+            if n > 1:
+                delta = abs(td_err)
+                self.Q_variance[prev_state_idx, prev_action_idx] = ((n-1) * self.Q_variance[prev_state_idx, prev_action_idx] + delta**2) / n
+            
+            # Apply feedback if available
+            if fb:
+                self._collect_feedback(fb)
+        
+        return action
+
+    def tabQL_dawid_skene(self, obs, rw, done, fb, type=1, update_Cest=None):
+        """
+        Dawid-Skene algorithm for crowd learning with reliability estimation
+        """
+        # Initialize Q and Dawid-Skene parameters
+        if self.Q is None:
+            self.Q = np.zeros([self.nStates, self.nActions])
+            if fb:
+                self.nTrainer = len(fb)
+                # Worker reliability matrix: [worker, true_label, reported_label]
+                self.worker_reliability = np.ones([self.nTrainer, 2, 2]) * 0.5
+                self.worker_reliability[:, 0, 0] = 0.7  # True negative correctly identified
+                self.worker_reliability[:, 1, 1] = 0.7  # True positive correctly identified
+                self.hp = np.zeros([self.nTrainer, self.nStates, self.nActions])
+                self.hm = np.zeros([self.nTrainer, self.nStates, self.nActions])
+        
+        curr_state_idx = obs
+        
+        # Collect feedback and estimate true labels using Dawid-Skene
+        if fb and update_Cest:
+            self._collect_feedback(fb)
+            self._update_dawid_skene()
+        
+        # Action selection using reliability-weighted feedback
+        if hasattr(self, 'reliable_feedback'):
+            weighted_q = self.Q[curr_state_idx, :] + 0.1 * self.reliable_feedback[curr_state_idx, :]
+            action = np.argmax(weighted_q)
+        else:
+            action = np.argmax(self.Q[curr_state_idx, :])
+        
+        # Standard Q-learning update
+        if self.prev_obs is not None:
+            prev_state_idx = self.prev_obs
+            prev_action_idx = self.prev_act
+            
+            td_err = (rw + self.gamma * np.max(self.Q[curr_state_idx, :])) - self.Q[prev_state_idx, prev_action_idx]
+            self.Q[prev_state_idx, prev_action_idx] += self.alpha * td_err
+        
+        return action
+
+    def _update_dawid_skene(self):
+        """
+        Helper method to update Dawid-Skene reliability estimates
+        """
+        if not hasattr(self, 'reliable_feedback'):
+            self.reliable_feedback = np.zeros([self.nStates, self.nActions])
+        
+        # Simplified Dawid-Skene update
+        for s in range(self.nStates):
+            for a in range(self.nActions):
+                if np.sum(self.hp[:, s, a] + self.hm[:, s, a]) > 0:
+                    # Estimate true label based on worker reliability
+                    weighted_pos = 0
+                    weighted_neg = 0
+                    for w in range(self.nTrainer):
+                        reliability = np.mean([self.worker_reliability[w, 0, 0], self.worker_reliability[w, 1, 1]])
+                        weighted_pos += self.hp[w, s, a] * reliability
+                        weighted_neg += self.hm[w, s, a] * reliability
+                    
+                    if weighted_pos + weighted_neg > 0:
+                        self.reliable_feedback[s, a] = (weighted_pos - weighted_neg) / (weighted_pos + weighted_neg)

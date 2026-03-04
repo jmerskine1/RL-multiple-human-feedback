@@ -2,186 +2,32 @@ import numpy as np
 
 import envPacMan as environment 
 from agent import agent
-
 from RLmon import RLmon
-
-class feedback():
-    def __init__(self, state=[], good_actions=[], conf_good_actions=[], bad_actions=[], conf_bad_actions=[]):
-        good_actions = np.array(good_actions)
-        bad_actions = np.array(bad_actions)
-        
-        # check inputs
-        if len(good_actions.shape) == 1:
-            good_actions = good_actions.reshape((1,-1))
-        if len(bad_actions.shape) == 1:
-            bad_actions = bad_actions.reshape((1,-1))
-        if not hasattr(conf_good_actions, '__len__'):
-            conf_good_actions = [conf_good_actions]
-        if not hasattr(conf_bad_actions, '__len__'):
-            conf_bad_actions = [conf_bad_actions]
-        
-        self.state = state
-        self.good_actions = good_actions
-        self.conf_good_actions = conf_good_actions
-        self.bad_actions = bad_actions
-        self.conf_bad_actions = conf_bad_actions
-        
-        
-def generate_feedback(state, nActions, C, right_actions, type='binary-feedback', action=None):
-    # generate human feedback
-    #   nActions = number of actions in the environment
-    #   C = consistency level (probability of giving a right feedback)
-    #   type = feedback type -- 'binary-feedback', 'soft-feedback', 'crisp-set', 'soft-set'
-    #   right_actions = list of actions for the optimal actions
-    #   action = action for giving a feedback
-    
-    if type=='multiple-feedback':
-        # right or wrong (original Adivce algorithm)
-        bad_actions = [ac for ac in range(nActions) if ac not in right_actions]
-        good_conf = [C]*len(right_actions)
-        bad_conf  = [C]*len(bad_actions)
-
-        if np.random.rand() < C:
-            # right feedback
-            if action in right_actions:
-                ret = feedback(state=state, good_actions=right_actions, bad_actions=bad_actions, conf_good_actions=good_conf, conf_bad_actions=bad_conf)
-            else:
-                ret = feedback(state=state, bad_actions=right_actions, good_actions=bad_actions, conf_good_actions=bad_conf, conf_bad_actions=good_conf)
-        else:
-            # wrong feedback
-            if action in right_actions:
-                ret = feedback(state=state, bad_actions=right_actions, good_actions=bad_actions, conf_good_actions=bad_conf, conf_bad_actions=good_conf)
-            else:
-                ret = feedback(state=state, good_actions=right_actions, bad_actions=bad_actions, conf_good_actions=good_conf, conf_bad_actions=bad_conf)
-    
-    if type=='binary-feedback_w_consistency':
-        # right or wrong (original Adivce algorithm)
-        if np.random.rand() < C:
-            # right feedback
-            if action in right_actions:
-                ret = feedback(state=state, good_actions=[action], conf_good_actions=C)
-            else:
-                ret = feedback(state=state, bad_actions=[action], conf_bad_actions=C)
-        else:
-            # wrong feedback
-            if action in right_actions:
-                ret = feedback(state=state, bad_actions=[action], conf_bad_actions=C)
-            else:
-                ret = feedback(state=state, good_actions=[action], conf_good_actions=C)
-
-    if type=='binary-feedback':
-        # right or wrong (original Adivce algorithm)
-        if np.random.rand() < C:
-            # right feedback
-            if action in right_actions:
-                ret = feedback(state=state, good_actions=[action], conf_good_actions=1.0)
-            else:
-                ret = feedback(state=state, bad_actions=[action], conf_bad_actions=1.0)
-        else:
-            # wrong feedback
-            if action in right_actions:
-                ret = feedback(state=state, bad_actions=[action], conf_bad_actions=1.0)
-            else:
-                ret = feedback(state=state, good_actions=[action], conf_good_actions=1.0)
-    elif type=='soft-feedback':
-        # right or wrong with the confidence level [0,1]
-        sampled_C = np.random.beta(a=C*10, b=(10-C*10)) # sample C from beta distribution to keep the expectation to be the given C
-        confidence = np.abs(sampled_C - 0.5) * 2.0
-        if np.random.rand() < sampled_C:
-            # right feedback
-            if action in right_actions:
-                ret = feedback(state=state, good_actions=[action], conf_good_actions=confidence)
-            else:
-                ret = feedback(state=state, bad_actions=[action], conf_bad_actions=confidence)
-        else:
-            # wrong feedback
-            if action in right_actions:
-                ret = feedback(state=state, bad_actions=[action], conf_bad_actions=confidence)
-            else:
-                ret = feedback(state=state, good_actions=[action], conf_good_actions=confidence)
-    elif type=='crisp-set':
-        # set of good and/or bad actions      
-        num_feedback_actions = 2
-        a_list = np.random.choice(nActions, num_feedback_actions, replace=False)
-        good_actions, bad_actions = [], []
-        for a in a_list:
-            if np.random.rand() < C:
-                # right feedback
-                if a in right_actions:
-                    good_actions.append(a)
-                else:
-                    bad_actions.append(a)
-            else:
-                # wrong feedback
-                if a in right_actions:
-                    bad_actions.append(a)
-                else:
-                    good_actions.append(a)
-        conf_good_actions = 1.0 if len(good_actions) > 0 else []
-        conf_bad_actions = 1.0 if len(bad_actions) > 0 else []
-        ret = feedback(state=state, good_actions=good_actions, conf_good_actions=conf_good_actions,
-                                    bad_actions=bad_actions,   conf_bad_actions=conf_bad_actions)
-    elif type=='soft-set':
-        # set of good and/or bad actions      
-        num_feedback_actions = 2
-        a_list = np.random.choice(nActions, num_feedback_actions, replace=False)
-        good_actions, bad_actions = [], []
-        sampled_C = np.random.beta(a=C*10, b=(10-C*10)) # sample C from beta distribution to keep the expectation to be the given C
-        confidence = np.abs(sampled_C - 0.5) * 2.0
-        for a in a_list:
-            if np.random.rand() < sampled_C:
-                # right feedback
-                if a in right_actions:
-                    good_actions.append(a)
-                else:
-                    bad_actions.append(a)
-            else:
-                # wrong feedback
-                if a in right_actions:
-                    bad_actions.append(a)
-                else:
-                    good_actions.append(a)
-        conf_good_actions = confidence if len(good_actions) > 0 else []
-        conf_bad_actions = confidence if len(bad_actions) > 0 else []
-        ret = feedback(state=state, good_actions=good_actions, conf_good_actions=conf_good_actions,
-                                    bad_actions=bad_actions,   conf_bad_actions=conf_bad_actions)
-    
-    # no information binary-feedbacks
-    elif type == 'binary-random':
-        # randomly pick right or wrong (original Adivce algorithm)
-        if np.random.rand() < 1.0/nActions:
-            ret = feedback(state=state, good_actions=[action], conf_good_actions=1.0)
-        else:
-            ret = feedback(state=state, bad_actions=[action], conf_bad_actions=1.0)
-    elif type == 'binary-positive':
-        # always positive (say right) (original Adivce algorithm)
-        ret = feedback(state=state, good_actions=[action], conf_good_actions=1.0)
-        
-    elif type == 'binary-negative':         
-        # always negative (say wrong) (original Adivce algorithm)
-        ret = feedback(state=state, bad_actions=[action], conf_bad_actions=1.0)
-
-    return ret
+from feedback import *
+import pickle
 
 # ==================================================================================================
-
-def main(algID   = 'tabQL_Cest_em_t2',  # Agent Algorithm   'tabQL_Cest_em_org_t1', 'tabQL_Cest_em_org_t2', 
+def main(algID   =  'tabQL_Cest_vi_t2',  # Agent Algorithm   'tabQL_Cest_em_org_t1', 'tabQL_Cest_em_org_t2', 
                                         #                   'tabQL_Cest_em_t1', 'tabQL_Cest_em_org_t2', 
-                                        #                   'tabQL_Cest_vi_t1', 'tabQL_Cest_vi_t2'
-         feedback_type = 'binary-feedback', # feedback type 'binary-feedback', 'soft-feedback', 'crisp-set', 'soft-set', 'binary-feedback_w_consistency', 'multiple-feedback'
-         simInfo = '_tmp',              # Filename header
+                                        #                   'tabQL_Cest_vi_t1', 'tabQL_Cest_vi_t2', 'tabQLrandom'
+         feedback_type = 'ranked-feedback', # feedback type 'binary-feedback', 'soft-feedback', 'crisp-set', 'soft-set', 'ranked-feedback
+         simInfo = '_50trials_10fb_ranked',              # Filename header
          env_size = 'small',            # Pacman environment size 'small' or 'medium'
-         trial_count = 100,             # number of learning trial
-         episode_count = 2000,          # number of episodes to learn
+         trial_count = 1,             # number of learning trial
+         episode_count = 1000,          # number of episodes to learn
          max_steps = 500,               # max. number of steps in a episode
-         L  = np.array([1.0]),          # probability to give a feedback
-         C  = np.array([0.2]),          # Human feedback confidence level
-         a  = 1.0,                      # alpha for C prior
-         b  = 1.0,                      # beta  for C prior
+         L  = np.array([10,10,10,10]),          # probability to give a feedback
+         C  = np.array([0.9,0.8,0.6,0.3]),          # a = [1Human feedback confidence level
+         prior_alpha  = 1.0,            # alpha for C prior
+         prior_beta   = 1.0,            # beta  for C prior
          no_reward = False,             # agent learns the policy without reward (feedback only)
          C_fixed = None,                # None: learn C, np.array(): fixed C (fixed C only works with "tabQL_Cest_em_org_t1" or "tabQL_Cest_em_org_t2")
          update_Cest_interval = 5,      # Cest update interval (number of espisodes)
-         window=None
+         active_feedback_type = 'count', #'count',   # active feedback type (None: no active feedback, 'count')
+         reset_env_random = False,      # environment start with random state (True: random, False: fixed)
+         randomise_trajectory = False,  # overwrite trajectory data with random data (True: overwrite, False: do not overwrite)
+         oracle4fb_type = 'old',        # oracle type for generating feedback ('old' or 'new')
+         oracle4al_type = 'old',        # oracle type for active learning     ('old' or 'new')
          ):
 
     print(f"start--{algID} {simInfo}")
@@ -191,10 +37,10 @@ def main(algID   = 'tabQL_Cest_em_t2',  # Agent Algorithm   'tabQL_Cest_em_org_t
     legendStr = []
     for n in range(len(C)):
         legendStr.append('L={0},C={1}'.format(L[n], C[n]))
-    mon = RLmon(trial_count, episode_count, 1)
-    monC = RLmon(trial_count, episode_count, len(C))
-    monAlpha = RLmon(trial_count, episode_count, len(C))
-    monBeta  = RLmon(trial_count, episode_count, len(C))
+    
+    monitor = RLmon(['return', 'Cest', 'alpha', 'beta'])
+    trajectory = Trajectory()
+    all_feedback = []
     
     env_h = environment.env(env_size)            
     for k in range(trial_count):
@@ -202,31 +48,60 @@ def main(algID   = 'tabQL_Cest_em_t2',  # Agent Algorithm   'tabQL_Cest_em_org_t
         
         env_h.reset()
         agent_h  = agent(algID, env_h.nStates(), len(env_h.action_list()), 
-                         a=a, b=b, 
+                         a=prior_alpha, b=prior_beta, 
                          C_fixed=C_fixed, 
                         )
         
         # Setup ORACLE
         oracle_h = agent('tabQLgreedy', env_h.nStates(), len(env_h.action_list()))
-        if env_size == 'small': # load pre-learned Q function 
-            oracle_h.load('learnedStates/pacman_tabQL_oracle.pkl')
+        if env_size == 'small': # load pre-learned Q function
+            if oracle4fb_type == 'new': 
+                oracle_h.load('learnedStates/pacman_small_tabQL_oracle_randomised_env.pkl')
+            else:
+                oracle_h.load('learnedStates/_nochase_smalltabQLgreedy.pkl')
+
         elif env_size == 'medium':
-            oracle_h.load('learnedStates/pacman_medium_tabQL_oracle.pkl')
+            oracle_h.load('/Users/jonathanerskine/University of Bristol/RL-multiple-human-feedback/learnedStates/_randenv_mediumtabQLgreedy.pkl')
+        
+        elif env_size == 'medium_sparse':
+            oracle_h.load('/Users/jonathanerskine/University of Bristol/RL-multiple-human-feedback/learnedStates/_randenv_medium_sparsetabQLgreedy.pkl')
+            # oracle_h.load('learnedStates/pacman_medium_tabQL_oracle.pkl')
         else:
             raise ValueError(f"nvalid env_size value - must be 'small' or 'medium': {env_size}")
         oracle_h.alpha = 0                          # set learning rate to zero (no learning)
-        
+
+        oracle_h_act = oracle_h
+        # oracle_h_act = agent('tabQLgreedy', env_h.nStates(), len(env_h.action_list()))
+        # if env_size == 'small': # load pre-learned Q function
+        #     if oracle4al_type == 'new': 
+        #         oracle_h_act.load('learnedStates/pacman_small_tabQL_oracle_randomised_env.pkl')
+        #     else:
+        #         oracle_h_act.load('learnedStates/pacman_tabQL_oracle.pkl') 
+        # elif env_size == 'medium':
+        #     oracle_h_act.load('learnedStates/pacman_medium_tabQL_oracle.pkl')
+        # else:
+        #     raise ValueError(f"nvalid env_size value - must be 'small' or 'medium': {env_size}")
+        # oracle_h.alpha = 0                          # set learning rate to zero (no learning)
+
+
         action_list = env_h.action_list()
         action = 0 
         ob = env_h.st2ob()            # observation
         rw = 0                        # reward
         totRW = 0                     # total reward in this episode
         done = False                  # episode completion flag
-        fb = [feedback() for n in range(len(C))] # Human feedback
+        fb = [[] for n in range(len(C))] # Human feedback
         update_Cest = False
+
+        totalRW_list = []
+        ob_for_feedback = None
+        rightAction = None
+        fbs = []
         
         for i in range(episode_count):
-            
+
+            trajectory.reset() # store trajectory for generating active feedback (generate feedback at the end of the episode)
+            fb = [[] for n in range(len(C))] # Human feedback
             for j in range(max_steps):
                 
                 if dispON:
@@ -241,52 +116,68 @@ def main(algID   = 'tabQL_Cest_em_t2',  # Agent Algorithm   'tabQL_Cest_em_org_t
         
                 # call agent
                 action = agent_h.act(action, ob, rw, done, fb, 0.5, update_Cest=False)
-
+                # call oracle to get 'right' action
+                if np.any(L > 0.0):
+                    rightAction = oracle_h.act(action, ob, rw, done, fb, C)
+                    ob_for_feedback = ob
+                    
                 # call environment
                 ob, rw, done = env_h.step(action_list[action])
 
                 # accumrate total reward
                 totRW += rw
 
+                # store the trajectory for generating active feedback (generate feedback at the end of the episode)
+                if np.any(L > 0.0):
+                    s = np.random.randint(0, env_h.nStates()) if randomise_trajectory else ob_for_feedback
+                    a = np.random.randint(0, len(env_h.action_list())) if randomise_trajectory else action
+                    # a = np.argmax(agent_h.Q[s,:]) if randomise_trajecotry else action
+                    opt_a = oracle_h.act(a, s, 0, False, [], []) if randomise_trajectory else rightAction
+                    trajectory.append(state=s, action=a, optimal_action=opt_a, reward=rw, done=done)
+
                 # set reward zero when simulating without reward scase
                 if no_reward:
                     rw = 0.0
                 
-                
-                if i in range(window[0],window[1]):
-                # call oracle to get 'right' action
-                    if np.any(L > 0.0):
-                        rightAction = oracle_h.act(action, ob, rw, done, fb, C)
-                        ob_for_feedback = ob
-                        # 'human' feedback generation (by using ORACLE)
-                    for trainerIdx in np.arange(len(fb)):
-                        if np.random.rand() < L[trainerIdx]:
-                            fb[trainerIdx] = generate_feedback(ob_for_feedback, len(env_h.action_list()), C[trainerIdx], [rightAction], type=feedback_type, action=action) # Right feedback
-                        else:
-                            fb[trainerIdx] = feedback() # no feedback
-                # else:
-                #             fb[trainerIdx] = feedback() # no feedback
-                
-                # if done==True, call agent once more to learn 
-                # the final transition, then finish this episode.
-                if done or j == max_steps - 1:
+                # 'human' feedback generation (by using ORACLE)
+                if np.any(L > 0.0):
+                    # generate feedbacks
+                    fb = generate_feedback(
+                            trajectory=trajectory,
+                            C=C,
+                            L=L,
+                            action_list=env_h.action_list(), 
+                            agent_h=agent_h, 
+                            oracle_h=oracle_h,
+                            oracle_h_act = oracle_h_act, 
+                            end_of_episode=(done or j == max_steps - 1), 
+                            no_reward=no_reward, 
+                            feedback_type = feedback_type, 
+                            active_feedback_type=active_feedback_type,)
+                               
+                if done or j == max_steps - 1:                    
                     update_Cest = ((i+1) % update_Cest_interval == 0)
                     agent_h.act(action, ob, rw, done, fb, C, update_Cest=update_Cest)
+                    agent_h.prev_obs = None
+                    fbs.append(fb)
                     break
             
-            if i % 100 == 0:
-                print(f"{k}, {i}: Ce: {agent_h.Ce} \t total reward: {totRW}")
+
+            totalRW_list.append(totRW)
+            if i % 20 == 0:
+                print(f"{k}, {i}: Ce: {agent_h.Ce} \t total reward: mean:{np.mean(totalRW_list):+.1f} (5 percentile: {np.percentile(totalRW_list, 5):+.1f}, 95 percentile: {np.percentile(totalRW_list, 95):+.1f})")
+                totalRW_list = []
             
             # store result
-            mon.store(i, k, totRW)
-            monC.store(i, k, agent_h.Ce)
+            monitor.store('return', totRW)
+            monitor.store('Cest', agent_h.Ce)
             if hasattr(agent_h, 'sum_of_right_feedback'):
                 # store VI algorithm parameters
-                monAlpha.store(i, k, agent_h.sum_of_right_feedback + agent_h.a)
-                monBeta.store(i, k,  agent_h.sum_of_wrong_feedback + agent_h.b)
+                monitor.store('alpha', agent_h.sum_of_right_feedback + agent_h.a)
+                monitor.store('beta',  agent_h.sum_of_wrong_feedback + agent_h.b)
                 
             # Reset environment
-            env_h.reset()
+            env_h.reset(random=reset_env_random, pellet_random=reset_env_random)
             agent_h.prev_obs = None
             ob = env_h.st2ob()
             rw = 0
@@ -300,22 +191,23 @@ def main(algID   = 'tabQL_Cest_em_t2',  # Agent Algorithm   'tabQL_Cest_em_org_t
         if k < trial_count-1:
             del agent_h
             del oracle_h
+        
+        all_feedback.append(fbs)
+        
+        # store the accumurated results
+        monitor.store(done=True)
 
     # Save results
-    fname = 'results/aveRW_' + 'Env_' + str(env_size) + '_' + str(algID) + str(simInfo)
-    mon.saveData(fname)
-    fname = 'results/aveC_' + 'Env_' + str(env_size) + '_' + str(algID) + str(simInfo)
-    monC.saveData(fname)
-    if hasattr(agent_h, 'sum_of_right_feedback'):
-        fname = 'results/aveAlpha_' + 'Env_' + str(env_size) + '_' + str(algID) + str(simInfo)
-        monAlpha.saveData(fname)
-        fname = 'results/aveBeta_' + 'Env_' + str(env_size) + '_' + str(algID) + str(simInfo)
-        monBeta.saveData(fname)
+    fname = 'results/results_' + 'Env_' + str(env_size) + '_' + str(algID) + str(simInfo) + str(active_feedback_type)
+    monitor.saveData(fname)
+
+    with open(f'results/'+'feedback_Env_' + str(env_size) + '_' + str(algID) + str(simInfo) + str(active_feedback_type)+'.pkl','wb') as f:
+        pickle.dump(all_feedback,f)
         
     #fname = 'results/plot_' + str(algID) + str(simInfo)
     #mon.savePlot(fname)
     
-    agent_h.save('learnedStates/pacman_' + str(algID))
+    # agent_h.save('learnedStates/pacman_' + str(algID))
 
 if __name__ == '__main__':
     main()

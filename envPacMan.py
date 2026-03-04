@@ -1,4 +1,8 @@
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.image as image
+from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+import matplotlib.patheffects as pe
 
 """ --------------------------------------------------------------------------
 Ghost - class
@@ -70,22 +74,32 @@ class pacman:
     def __init__(self, x, y, map):
         self.init_pos = [x, y]
         self.reset()
-        
+
         self.map = map
         return
-    
+
     def reset(self, x=[], y=[]):
         if x==[]:
             self.pos = self.init_pos
         else:
             self.pos = [x,y]
         self.prepos = self.pos
+        self.last_dir = None   # last direction that produced actual movement
         return
-    
+
     def move(self, action):
-        
         self.prepos = self.pos
-        self.pos = self.newPos(self.pos, action)    
+        new_pos = self.newPos(self.pos, action)
+        if new_pos == self.pos:
+            # Chosen action hits a wall – try to continue in the last
+            # successful direction instead of standing still.
+            if self.last_dir is not None:
+                fallback = self.newPos(self.pos, self.last_dir)
+                if fallback != self.pos:
+                    new_pos = fallback
+        else:
+            self.last_dir = action   # record direction that caused movement
+        self.pos = new_pos
         return
     
     def newPos(self, currPos, dir):
@@ -163,15 +177,43 @@ class env:
             self.pacman = pacman(1,1, self.map)
             self.ghost  = ghost(9,6, self.map)
             self.pellets = pellets([[3,4],[7,3],[1,6],[9,1]])
+        
+        elif size == 'medium_sparse':        
+            self.map.append('###########')
+            self.map.append('#         #')
+            self.map.append('# ### ### #')
+            self.map.append('# #   # # #')
+            self.map.append('# # #   # #')
+            self.map.append('# ### ### #')
+            self.map.append('#         #')
+            self.map.append('###########')
+                                    
+            self.pacman = pacman(1,1, self.map)
+            self.ghost  = ghost(9,6, self.map)
+            self.pellets = pellets([[3,4],[7,3]])
+
         else:
             raise ValueError(f"invalid environment size is specified: {size}")
 
         self.map_size_x = len(self.map[0]) - 2
         self.map_size_y = len(self.map) - 2
         self.num_pellets = self.pellets.number_remaining_pellets()
+
+        # Compute inner-wall obstacles from map (any '#' not on the outer border)
+        self.obstacles = []
+        for y in range(1, len(self.map) - 1):
+            for x in range(1, len(self.map[0]) - 1):
+                if self.map[y][x] == '#':
+                    self.obstacles.append([x, y])
+
+        # Load sprite images for plotting
+        self.pacman_img = image.imread('./sprites/pacman.png')
+        self.ghost_img  = image.imread('./sprites/ghost.png')
+        self.pellet_img = image.imread('./sprites/cherry.png')
+        self.walls = self.add_walls()
         return
     
-    def reset(self, random=False):
+    def reset(self, random=False, pellet_random=False):
         if random:
             xlim = len(self.map[0])
             ylim = len(self.map)
@@ -180,22 +222,29 @@ class env:
             while True:
                 px = np.random.randint(0, xlim)
                 py = np.random.randint(0, ylim)
-                if self.map[px][py] != '#':
+                if self.map[py][px] != '#':
                     self.pacman.reset(px,py)
                     break
             # ghost location
             while True:
                 gx = np.random.randint(0, xlim)
                 gy = np.random.randint(0, ylim)
-                if self.map[gx][gy] != '#' and (px!=gx or py!=gy):
+                if self.map[gy][gx] != '#' and (px!=gx or py!=gy):
                     self.ghost.reset(gx,gy)
                     break
         else:
             self.pacman.reset()
             self.ghost.reset()
             
-        self.pellets.reset()        
-        return
+        self.pellets.reset()
+        if pellet_random:
+            # random pellet enable/disable
+            while True:
+                valid = np.random.randint(0, 2, len(self.pellets.valid)) == 1
+                if np.any(valid):
+                    break
+            self.pellets.valid = valid
+        return self.st2ob()
     
     def nStates(self):
         return (self.map_size_x*self.map_size_y) * 4 * (2**self.num_pellets) * (self.map_size_x*self.map_size_y) # Ghost pos. x Ghost direction x pellets x Pacman pos.
@@ -234,6 +283,86 @@ class env:
                 
         return [self.st2ob(), rw, done]
     
+    def wall_exists(self, coord1, coord2, walls):
+        return [coord1, coord2] in walls or [coord2, coord1] in walls
+
+    def add_walls(self):
+        walls = []
+        margin = 0.5
+        walls.append([[margin, margin], [self.map_size_x + margin, margin],
+                      [margin, margin], [margin, self.map_size_y + margin],
+                      [margin, self.map_size_y + margin], [self.map_size_x + margin, self.map_size_y + margin],
+                      [self.map_size_x + margin, margin], [self.map_size_x + margin, self.map_size_y + margin]])
+        for ob_a in self.obstacles:
+            for ob_b in self.obstacles:
+                if self.wall_exists(ob_a, ob_b, walls):
+                    continue
+                if abs(ob_a[0] - ob_b[0]) == 1 and abs(ob_a[1] - ob_b[1]) == 0:
+                    walls.append([ob_a, ob_b])
+                elif abs(ob_a[1] - ob_b[1]) == 1 and abs(ob_a[0] - ob_b[0]) == 0:
+                    walls.append([ob_b, ob_a])
+        return walls
+
+    @staticmethod
+    def _faded_image(img, alpha):
+        """Return a copy of img (H×W×3 or H×W×4) with opacity scaled by alpha."""
+        arr = img.astype(float)
+        if arr.max() > 1.0:
+            arr = arr / 255.0
+        if arr.shape[2] == 3:
+            arr = np.concatenate([arr, np.ones((*arr.shape[:2], 1))], axis=2)
+        result = arr.copy()
+        result[:, :, 3] *= alpha
+        return result
+
+    def plot(self, trail=None):
+        """Plot the current environment state.
+
+        trail : list of [pac_pos, ghost_pos] for past frames, oldest first.
+                Up to 2 entries; rendered as faded sprites behind the current ones.
+        """
+        fig, ax = plt.subplots(figsize=(5, 5), edgecolor='black')
+        for spine in ax.spines.values():
+            spine.set_edgecolor('black')
+        ax.set_aspect(1.0)
+        for i in range(1, self.map_size_x + 1):
+            ax.plot([1, self.map_size_x], [i, i], color='#1818A6', zorder=1, linewidth=2)
+        for i in range(1, self.map_size_y + 1):
+            ax.plot([i, i], [1, self.map_size_y], color='#1818A6', zorder=1, linewidth=2)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_facecolor('#000000')
+        for wall in self.walls:
+            x, y = zip(*wall)
+            plt.plot(x, y, color='#000000', linewidth=10,
+                     path_effects=[pe.Stroke(linewidth=15, foreground='#4663FF'), pe.Normal()], zorder=2)
+        pellet_imagebox = OffsetImage(self.pellet_img, zoom=0.05)
+        for pellet in self.pellets.remaining_pellets():
+            a = AnnotationBbox(pellet_imagebox, (pellet[0], self.map_size_y + 1 - pellet[1]), frameon=False)
+            ax.add_artist(a)
+        # Faded trail sprites (oldest = most faded)
+        if trail:
+            trail_alphas = [0.2, 0.4]
+            offset = 2 - len(trail)  # so the most-recent trail entry always gets alpha 0.4
+            for i, (pp, gp) in enumerate(trail):
+                alpha = trail_alphas[i + offset]
+                ax.add_artist(AnnotationBbox(
+                    OffsetImage(self._faded_image(self.pacman_img, alpha), zoom=0.025),
+                    (pp[0], self.map_size_y + 1 - pp[1]), frameon=False))
+                ax.add_artist(AnnotationBbox(
+                    OffsetImage(self._faded_image(self.ghost_img, alpha), zoom=0.1),
+                    (gp[0], self.map_size_y + 1 - gp[1]), frameon=False))
+        # Current sprites (full opacity)
+        pacman_imagebox = OffsetImage(self.pacman_img, zoom=0.025)
+        a = AnnotationBbox(pacman_imagebox,
+                           (self.pacman.pos[0], self.map_size_y + 1 - self.pacman.pos[1]), frameon=False)
+        ax.add_artist(a)
+        ghost_imagebox = OffsetImage(self.ghost_img, zoom=0.1)
+        b = AnnotationBbox(ghost_imagebox,
+                           (self.ghost.pos[0], self.map_size_y + 1 - self.ghost.pos[1]), frameon=False)
+        ax.add_artist(b)
+        return fig, ax
+
     # generate display string
     def display(self):
         disp = self.map.copy()
