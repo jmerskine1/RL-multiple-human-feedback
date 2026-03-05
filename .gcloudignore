@@ -13,7 +13,30 @@
 .git
 .gitignore
 
-# Python pycache:
+# Python
 __pycache__/
-# Ignored by the build system
+*.pyc
+*.pyo
 /setup.cfg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Local-only data files
+*.pkl
+*.db
+*.sqlite
+learnedStates/
+results/
+
+# Local-only scripts (not needed on GCP)
+main.py
+main_train_oracle.py
+run.py
+bundle_generator.py
+requirements.txt
+
+# Mac
+.DS_Store

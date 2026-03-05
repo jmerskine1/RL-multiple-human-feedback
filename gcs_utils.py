@@ -85,6 +85,52 @@ def add_labelled_state(session_hash: str, obs: int, bucket_name: str) -> None:
 
 # ── feedback log ──────────────────────────────────────────────────────────────
 
+# ── participant codes ─────────────────────────────────────────────────────────
+
+def get_valid_codes(bucket_name: str) -> set:
+    blob = get_bucket(bucket_name).blob("sessions/valid_codes.json")
+    if not blob.exists():
+        return set()
+    return set(json.loads(blob.download_as_text()))
+
+def add_valid_code(code: str, bucket_name: str) -> None:
+    codes = get_valid_codes(bucket_name)
+    codes.add(code.strip().upper())
+    blob = get_bucket(bucket_name).blob("sessions/valid_codes.json")
+    blob.upload_from_string(json.dumps(sorted(codes)), content_type="application/json")
+
+def is_valid_code(code: str, bucket_name: str) -> bool:
+    return code.strip().upper() in get_valid_codes(bucket_name)
+
+
+def write_pending(session_hash: str, bucket_name: str) -> None:
+    """Signal that this session needs a new bundle (read by watch_bundles.py)."""
+    blob = get_bucket(bucket_name).blob(f"sessions/{session_hash}/pending")
+    if not blob.exists():
+        blob.upload_from_string("", content_type="text/plain")
+
+def clear_pending(session_hash: str, bucket_name: str) -> None:
+    blob = get_bucket(bucket_name).blob(f"sessions/{session_hash}/pending")
+    if blob.exists():
+        blob.delete()
+
+def list_pending_sessions(bucket_name: str) -> set:
+    bucket = get_bucket(bucket_name)
+    return {
+        b.name.split("/")[1]
+        for b in bucket.list_blobs(prefix="sessions/")
+        if b.name.endswith("/pending")
+    }
+
+def list_brain_sessions(bucket_name: str) -> set:
+    bucket = get_bucket(bucket_name)
+    return {
+        b.name.split("/")[1]
+        for b in bucket.list_blobs(prefix="brains/")
+        if b.name.endswith("brain.pkl")
+    }
+
+
 def append_annotation(session_hash: str, record: dict, bucket_name: str) -> None:
     """Append one JSON record to the session's annotation log."""
     blob = get_bucket(bucket_name).blob(f"feedback/{session_hash}/annotations.jsonl")

@@ -102,23 +102,23 @@
             if (event.key === ' ' || event.keyCode === 32) {
                 event.preventDefault();
                 submitRanking();
-                document.getElementById('next').submit();
             }
         });
 
         document.getElementById('Spacebar').addEventListener('click', function () {
             submitRanking();
-            document.getElementById('next').submit();
         });
 
         function submitRanking() {
             const dirOrder = rankOrder.map(id => arrowToDir[id]);
-            console.log('Ranked (best→worst):', dirOrder);
             fetch('/submit', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ranking: dirOrder })
-            }).catch(error => console.error('Submit error:', error));
+            })
+            .then(response => response.text())
+            .then(html => { document.open(); document.write(html); document.close(); })
+            .catch(error => console.error('Submit error:', error));
         }
     });
 </script>

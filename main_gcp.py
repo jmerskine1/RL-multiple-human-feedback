@@ -23,14 +23,14 @@ import os
 import json
 import pickle
 
-from flask import Flask, render_template, request, session, jsonify
+from flask import Flask, render_template, request, session, jsonify, redirect, url_for
 import numpy as np
 
 from feedback import Feedback
 from trainer import PacmanTrainer
 from gcs_utils import (
     download_bundle, download_brain, upload_brain,
-    append_annotation, add_labelled_state,
+    append_annotation, add_labelled_state, write_pending, is_valid_code,
 )
 
 # ── App setup ──────────────────────────────────────────────────────────────────
@@ -79,16 +79,21 @@ def _evict_bundle(session_hash: str) -> None:
 
 # ── Session helpers ────────────────────────────────────────────────────────────
 # The cookie session stores only lightweight data:
-#   session_hash       — maps to GCS objects
+#   session_hash       — participant code (set at login)
 #   current_queue_idx  — position within selected_indices
 #   Ce_list            — list of floats (grows with feedback, ~8B each)
 
+def _logged_in() -> bool:
+    # authenticated flag is only set by the login route — prevents old cookies bypassing login
+    return "session_hash" in session and session.get("authenticated", False)
+
 def _ensure_session():
-    if "session_hash" not in session:
-        import uuid
-        session["session_hash"]      = uuid.uuid4().hex[:12]
-        session["current_queue_idx"] = 0
-        session["Ce_list"]           = [0.5]
+    """Redirect to login if participant hasn't entered their code."""
+    if not _logged_in():
+        return redirect(url_for("login"))
+    session.setdefault("current_queue_idx", 0)
+    session.setdefault("Ce_list", [0.5])
+    return None
 
 def _render(bundle: dict, **extra):
     idx      = bundle["selected_indices"][session["current_queue_idx"]]
@@ -112,13 +117,37 @@ def _render(bundle: dict, **extra):
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        code = request.form.get("code", "").strip().upper()
+        if is_valid_code(code, GCS_BUCKET):
+            session.clear()
+            session["session_hash"]      = code
+            session["authenticated"]     = True
+            session["current_queue_idx"] = 0
+            session["Ce_list"]           = [0.5]
+            return redirect(url_for("index"))
+        return render_template("login.html", error="Invalid code — please check and try again.")
+    return render_template("login.html", error=None)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
 @app.route("/")
 def index():
-    _ensure_session()
+    redir = _ensure_session()
+    if redir:
+        return redir
     session["current_queue_idx"] = 0
 
     bundle = _load_bundle(session["session_hash"])
     if not bundle:
+        write_pending(session["session_hash"], GCS_BUCKET)
         return render_template("waiting.html",
                                session_hash=session["session_hash"])
 
@@ -127,7 +156,9 @@ def index():
 
 @app.route("/next", methods=["POST"])
 def nextFrame():
-    _ensure_session()
+    redir = _ensure_session()
+    if redir:
+        return redir
     bundle = _load_bundle(session["session_hash"])
     if not bundle:
         return render_template("waiting.html",
@@ -142,7 +173,9 @@ def nextFrame():
 
 @app.route("/previous", methods=["POST"])
 def previousFrame():
-    _ensure_session()
+    redir = _ensure_session()
+    if redir:
+        return redir
     bundle = _load_bundle(session["session_hash"])
     if not bundle:
         return render_template("waiting.html",
@@ -157,7 +190,9 @@ def previousFrame():
 
 @app.route("/submit", methods=["POST"])
 def submit():
-    _ensure_session()
+    redir = _ensure_session()
+    if redir:
+        return redir
     bundle = _load_bundle(session["session_hash"])
     if not bundle:
         return render_template("waiting.html",
@@ -198,11 +233,11 @@ def submit():
 
     elif FEEDBACK_TYPE == "ordinal-feedback":
         values = data["values"]
-        Q_syn = np.zeros(n_actions)
+        Q_syn = np.full(n_actions, 0.5)   # 0.5 = neutral, no signal to agent
         for arrow_str, val in values.items():
             Q_syn[action_list.index(arrow_dict[arrow_str])] = float(val)
         for i in invalid_idx:
-            Q_syn[i] = 0.0
+            Q_syn[i] = 0.5                # invalid moves also get no signal
         fb_obj = Feedback(state=obs, good_actions=Q_syn.tolist(), conf_good_actions=1.0)
         db_feedback = json.dumps(values)
 
@@ -245,8 +280,9 @@ def submit():
         session["current_queue_idx"] = q + 1
         return _render(bundle)
     else:
-        # Bundle exhausted — evict cache + GCS copy, ask researcher to generate next
+        # Bundle exhausted — evict cache + GCS copy, signal watcher to generate next
         _evict_bundle(session["session_hash"])
+        write_pending(session["session_hash"], GCS_BUCKET)
         return render_template("waiting.html",
                                session_hash=session["session_hash"])
 

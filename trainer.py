@@ -141,16 +141,43 @@ class PacmanTrainer:
     def load_brain(self, brain_data):
         """Load brain data into the current agent."""
         if brain_data:
-            self.agent.Q = brain_data['Q']
+            from scipy.special import psi as scipy_psi
+
+            self.agent.Q  = brain_data['Q']
             self.agent.hp = brain_data['hp']
             self.agent.hm = brain_data['hm']
             self.agent.Ce = brain_data['Ce']
-            if 'sum_of_right_feedback' in brain_data:
-                self.agent.sum_of_right_feedback = brain_data['sum_of_right_feedback']
-            if 'sum_of_wrong_feedback' in brain_data:
-                self.agent.sum_of_wrong_feedback = brain_data['sum_of_wrong_feedback']
-            if 'Nsa' in brain_data:
-                self.agent.Nsa = brain_data['Nsa']
+
+            # nTrainer is not persisted separately — derive it from Ce
+            self.agent.nTrainer = len(brain_data['Ce'])
+
+            self.agent.sum_of_right_feedback = brain_data.get(
+                'sum_of_right_feedback', np.zeros(self.agent.nTrainer))
+            self.agent.sum_of_wrong_feedback = brain_data.get(
+                'sum_of_wrong_feedback', np.zeros(self.agent.nTrainer))
+
+            # Ensure a/b are arrays of length nTrainer (init block normally does this)
+            if not hasattr(self.agent.a, "__len__"):
+                self.agent.a = np.ones(self.agent.nTrainer) * self.agent.a
+            if not hasattr(self.agent.b, "__len__"):
+                self.agent.b = np.ones(self.agent.nTrainer) * self.agent.b
+
+            # Recompute psi values that tabQL_Cest_vi needs on every call
+            self.agent.psi_for_hr = (
+                scipy_psi(self.agent.sum_of_right_feedback + self.agent.a) -
+                scipy_psi(self.agent.sum_of_right_feedback +
+                          self.agent.sum_of_wrong_feedback +
+                          self.agent.a + self.agent.b)
+            )
+            self.agent.psi_for_hw = (
+                scipy_psi(self.agent.sum_of_wrong_feedback + self.agent.b) -
+                scipy_psi(self.agent.sum_of_right_feedback +
+                          self.agent.sum_of_wrong_feedback +
+                          self.agent.a + self.agent.b)
+            )
+
+            self.agent.Nsa = brain_data.get(
+                'Nsa', np.zeros_like(self.agent.Q))
 
     def save_agent(self, fname):
         self.agent.save(fname)

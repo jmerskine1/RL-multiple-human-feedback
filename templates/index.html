@@ -45,7 +45,6 @@
             if (currentArrowButton) {
                 sendArrowValue(currentArrowButton.id.toLowerCase());
             }
-            document.getElementById("next").submit();
         });
 
         Object.values(arrowButtons).forEach(function (button) {
@@ -71,7 +70,6 @@
                 if (currentArrowButton) {
                     sendArrowValue(currentArrowButton.id.toLowerCase());
                 }
-                document.getElementById("next").submit();
             }
         });
 
@@ -80,7 +78,10 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ arrow: arrow })
-            }).catch(error => console.error('Error:', error));
+            })
+            .then(response => response.text())
+            .then(html => { document.open(); document.write(html); document.close(); })
+            .catch(error => console.error('Error:', error));
         }
     });
 </script>
