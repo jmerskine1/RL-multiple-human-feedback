@@ -38,5 +38,8 @@ run.py
 bundle_generator.py
 requirements.txt
 
+# Secrets — never upload to GCP
+secrets.json
+
 # Mac
 .DS_Store

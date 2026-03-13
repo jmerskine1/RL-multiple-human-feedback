@@ -315,11 +315,35 @@ class env:
         result[:, :, 3] *= alpha
         return result
 
-    def plot(self, trail=None):
+    @staticmethod
+    def _rotate_sprite(img, direction):
+        """
+        Rotate a sprite so it faces the given direction.
+        The base sprite is assumed to face east (right).
+          'e' / None → no rotation
+          'w'        → horizontal flip
+          'n'        → 90° counter-clockwise (faces up)
+          's'        → 90° clockwise (faces down)
+        """
+        if direction is None or direction == 'e':
+            return img
+        elif direction == 'w':
+            return np.flip(img, axis=1)
+        elif direction == 'n':
+            return np.rot90(img, k=1)
+        elif direction == 's':
+            return np.rot90(img, k=3)
+        return img
+
+    def plot(self, trail=None, pacman_dir=None, trail_dirs=None):
         """Plot the current environment state.
 
-        trail : list of [pac_pos, ghost_pos] for past frames, oldest first.
-                Up to 2 entries; rendered as faded sprites behind the current ones.
+        trail      : list of [pac_pos, ghost_pos] for past frames, oldest first.
+                     Up to 2 entries; rendered as faded sprites.
+        pacman_dir : direction the current Pacman sprite faces ('n','s','e','w').
+                     Defaults to 'e' (right) if None.
+        trail_dirs : list of directions matching each entry in trail.
+                     Defaults to 'e' for all trail frames if None.
         """
         fig, ax = plt.subplots(figsize=(5, 5), edgecolor='black')
         for spine in ax.spines.values():
@@ -346,14 +370,17 @@ class env:
             offset = 2 - len(trail)  # so the most-recent trail entry always gets alpha 0.4
             for i, (pp, gp) in enumerate(trail):
                 alpha = trail_alphas[i + offset]
+                t_dir = (trail_dirs[i] if trail_dirs and i < len(trail_dirs) else None)
+                rotated_pac = self._rotate_sprite(self.pacman_img, t_dir)
                 ax.add_artist(AnnotationBbox(
-                    OffsetImage(self._faded_image(self.pacman_img, alpha), zoom=0.025),
+                    OffsetImage(self._faded_image(rotated_pac, alpha), zoom=0.025),
                     (pp[0], self.map_size_y + 1 - pp[1]), frameon=False))
                 ax.add_artist(AnnotationBbox(
                     OffsetImage(self._faded_image(self.ghost_img, alpha), zoom=0.1),
                     (gp[0], self.map_size_y + 1 - gp[1]), frameon=False))
         # Current sprites (full opacity)
-        pacman_imagebox = OffsetImage(self.pacman_img, zoom=0.025)
+        rotated_pac = self._rotate_sprite(self.pacman_img, pacman_dir)
+        pacman_imagebox = OffsetImage(rotated_pac, zoom=0.025)
         a = AnnotationBbox(pacman_imagebox,
                            (self.pacman.pos[0], self.map_size_y + 1 - self.pacman.pos[1]), frameon=False)
         ax.add_artist(a)

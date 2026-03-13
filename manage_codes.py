@@ -4,11 +4,11 @@ manage_codes.py — Add/list/remove/reset participant access codes in GCS.
 
 Usage
 -----
-  python manage_codes.py --bucket jerskine_human_feedback add P001 P002 P003
-  python manage_codes.py --bucket jerskine_human_feedback list
-  python manage_codes.py --bucket jerskine_human_feedback remove P001
-  python manage_codes.py --bucket jerskine_human_feedback reset P001
-  python manage_codes.py --bucket jerskine_human_feedback status
+  python manage_codes.py --bucket <your-gcs-bucket> add P001 P002 P003
+  python manage_codes.py --bucket <your-gcs-bucket> list
+  python manage_codes.py --bucket <your-gcs-bucket> remove P001
+  python manage_codes.py --bucket <your-gcs-bucket> reset P001
+  python manage_codes.py --bucket <your-gcs-bucket> status
 """
 
 import argparse

@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir -r requirements_gcp.txt
 
 # Copy application source
 COPY agent.py envPacMan.py feedback.py ghost.py gcs_utils.py \
-     main_gcp.py mylib.py trainer.py ./
+     main_gcp.py mylib.py trainer.py secrets_loader.py ./
 
 # Copy templates and static assets
 COPY templates/ templates/

@@ -34,10 +34,12 @@ from gcs_utils import (
 )
 
 # ── App setup ──────────────────────────────────────────────────────────────────
-app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET", "change-me-in-production")
+from secrets_loader import secret
 
-GCS_BUCKET = os.environ.get("GCS_BUCKET", "my-pacman-bucket")  # set via env var
+app = Flask(__name__)
+app.secret_key = secret("flask_secret", env_var="FLASK_SECRET", default="change-me-in-production")
+
+GCS_BUCKET = secret("gcs_bucket", env_var="GCS_BUCKET")  # set via secrets.json or env var
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 FEEDBACK_TYPE   = os.environ.get("FEEDBACK_TYPE", "ordinal-feedback")
@@ -95,11 +97,45 @@ def _ensure_session():
     session.setdefault("Ce_list", [0.5])
     return None
 
+def _sync_queue_idx(bundle: dict) -> int:
+    """
+    Return a guaranteed-valid current_queue_idx for this bundle.
+
+    Guards against two crash scenarios:
+      1. Stale cookie — participant went back in browser history after bundle
+         rotation; their cookie still carries an index from the old (longer)
+         bundle.
+      2. Bundle size changed — the watcher generated a shorter next batch
+         (fewer unlabelled states left), making the old index out of range.
+
+    Also resets the index when the bundle itself has changed (detected via the
+    length stored in the session at the time the bundle was first seen).
+    """
+    queue_len   = len(bundle["selected_indices"])
+    stored_len  = session.get("bundle_len")
+    q           = session.get("current_queue_idx", 0)
+
+    # Detect bundle rotation: if the stored length doesn't match the current
+    # bundle, the participant has moved onto a new bundle — reset to position 0.
+    if stored_len != queue_len:
+        q = 0
+        session["bundle_len"] = queue_len
+
+    # Hard clamp — should never be needed after the above, but prevents a crash
+    # even if session state is corrupt for any other reason.
+    if q < 0 or q >= queue_len:
+        q = 0
+
+    session["current_queue_idx"] = q
+    return q
+
+
 def _render(bundle: dict, **extra):
-    idx      = bundle["selected_indices"][session["current_queue_idx"]]
+    q        = _sync_queue_idx(bundle)
+    idx      = bundle["selected_indices"][q]
     img2     = bundle["all_plots"][idx]
     valid_mv = bundle["all_valid_moves"][idx]
-    queue_pos = session["current_queue_idx"] + 1
+    queue_pos = q + 1
     queue_len = len(bundle["selected_indices"])
     return render_template(
         get_template(),
@@ -164,7 +200,7 @@ def nextFrame():
         return render_template("waiting.html",
                                session_hash=session["session_hash"])
 
-    q = session["current_queue_idx"]
+    q = _sync_queue_idx(bundle)
     if q + 1 < len(bundle["selected_indices"]):
         session["current_queue_idx"] = q + 1
 
@@ -181,7 +217,7 @@ def previousFrame():
         return render_template("waiting.html",
                                session_hash=session["session_hash"])
 
-    q = session["current_queue_idx"]
+    q = _sync_queue_idx(bundle)
     if q > 0:
         session["current_queue_idx"] = q - 1
 
@@ -201,7 +237,7 @@ def submit():
     # ── 1. Rebuild Feedback object from human input ───────────────────────────
     data          = request.get_json()
     arrow_dict    = {"arrowup": "n", "arrowdown": "s", "arrowleft": "w", "arrowright": "e"}
-    idx           = bundle["selected_indices"][session["current_queue_idx"]]
+    idx           = bundle["selected_indices"][_sync_queue_idx(bundle)]
     obs           = bundle["all_obs"][idx]
     taken_action  = bundle["all_actions"][idx]
     valid_moves   = bundle["all_valid_moves"][idx]          # [n, s, e, w]
@@ -253,11 +289,22 @@ def submit():
     brain = download_brain(session["session_hash"], GCS_BUCKET)
     if brain:
         trainer.load_brain(brain)
+    else:
+        # Fresh brain — trigger Q/hp/hm initialisation via a dummy act() call
+        # (the init block inside tabQL_Cest_vi only runs when Q is None).
+        # prev_obs stays None so no Q-update or feedback side-effects occur.
+        trainer.agent.act(taken_action, obs, 0, False, [[]], 0.5, update_Cest=False)
 
-    trainer.agent.act(
-        taken_action, obs, 0, False,
-        [[fb_obj]], 0.5, update_Cest=True
-    )
+    # Apply human feedback directly to hp/hm.
+    # We bypass act() here because act() guards _collect_feedback behind
+    # `if self.prev_obs is not None`, which is always None on a fresh request.
+    trainer.agent._collect_feedback([[fb_obj]])
+
+    # Re-estimate consistency from updated hp/hm.
+    # Reset prev_obs first so the act() call below doesn't trigger a spurious
+    # Q-learning self-loop update — only the EM loop at the end needs to run.
+    trainer.agent.prev_obs = None
+    trainer.agent.act(taken_action, obs, 0, False, [[]], 0.5, update_Cest=True)
 
     # ── 3. Persist updated brain and feedback log ─────────────────────────────
     upload_brain(session["session_hash"], trainer.get_brain(), GCS_BUCKET)
@@ -275,7 +322,7 @@ def submit():
     session["Ce_list"] = ce_list
 
     # ── 5. Advance queue or request new bundle ────────────────────────────────
-    q = session["current_queue_idx"]
+    q = _sync_queue_idx(bundle)
     if q + 1 < len(bundle["selected_indices"]):
         session["current_queue_idx"] = q + 1
         return _render(bundle)

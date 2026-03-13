@@ -110,7 +110,8 @@ def generate_bundle(
         print(f"[{session_hash}] attempt {attempt + 1}: running episode …", end=" ", flush=True)
         for _ in range(max_steps):
             obs = trainer.ob
-            pos = [list(trainer.env.pacman.pos), list(trainer.env.ghost.pos)]
+            pac_dir = trainer.env.pacman.last_dir or 'e'
+            pos = [list(trainer.env.pacman.pos), list(trainer.env.ghost.pos), pac_dir]
             fp.append(pos)
 
             # valid moves: [n, s, e, w]
@@ -121,8 +122,9 @@ def generate_bundle(
             ]
             vm_list.append(vm)
 
-            trail = fp[-3:-1] if len(fp) >= 3 else None
-            fig, _ = trainer.env.plot(trail=trail)
+            trail      = [[p[0], p[1]] for p in fp[-3:-1]] if len(fp) >= 3 else None
+            trail_dirs = [p[2]         for p in fp[-3:-1]] if len(fp) >= 3 else None
+            fig, _ = trainer.env.plot(trail=trail, pacman_dir=pac_dir, trail_dirs=trail_dirs)
             plots.append(_encode_figure(fig))
             obs_list.append(obs)
 

@@ -81,7 +81,7 @@ def main(algID   =  'tabQL_Cest_vi_t2',
                             end_of_episode=False, 
                             no_reward=no_reward, 
                             feedback_type=feedback_type, 
-                            active_feedback_type=None if active_feedback_type is None else 'none') # Oracle gives feedback every step or based on simple logic here
+                            active_feedback_type=active_feedback_type) #None if active_feedback_type is None else 'none') # Oracle gives feedback every step or based on simple logic here
 
                 # Perform step
                 # Note: In the original main_oracle, it calls agent.act twice, once to get action and once to update at end.

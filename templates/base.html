@@ -48,7 +48,6 @@
                 <div class="numbered-list">
                     <ol>
                         {% block instructions %}{% endblock %}
-                        <li>You can skip between time steps using 'Previous' and 'Next'.</li>
                     </ol>
                 </div>
             </div>
@@ -67,14 +66,6 @@
             {% block feedback_controls %}{% endblock %}
             
             <button class="spacebar-button" id="Spacebar">Submit</button>
-            <div class="nav-buttons">
-                <form action="/previous" method="post">
-                    <button class="direction-button" type="submit">Previous</button>
-                </form>
-                <form action="/next" id="next" method="post">
-                    <button class="direction-button" type="submit">Next</button>
-                </form>
-            </div>
         </div>
     </div>
 

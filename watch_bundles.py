@@ -8,7 +8,7 @@ uploads one so participants aren't kept waiting.
 
 Usage
 -----
-  python watch_bundles.py --bucket jerskine_human_feedback [--interval 10]
+  python watch_bundles.py --bucket <your-gcs-bucket> [--interval 10]
 
 Keep this running on your local machine throughout the study.
 """

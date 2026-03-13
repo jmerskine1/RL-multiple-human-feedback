@@ -1,0 +1,19 @@
+# Human participants
+numerous-difference
+casual-jail
+exciting-economics
+elegant-threat
+handy-allegation
+# preliminary-balcony
+# bourgeois-invention
+# national-actor
+# equal-constituent
+# comparative-auction
+
+# LLM annotators
+LLM_claude-small
+LLM_claude-large
+LLM_gemini-small
+LLM_gemini-large
+LLM_gpt4o-mini
+LLM_gpt4o

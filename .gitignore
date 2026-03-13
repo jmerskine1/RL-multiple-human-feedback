@@ -25,6 +25,11 @@ learnedStates/
 results/
 
 # ==========================================
+# Secrets — never commit
+# ==========================================
+secrets.json
+
+# ==========================================
 # Miscellaneous & Hidden
 # ==========================================
 # Old backups and temp files
