@@ -202,6 +202,8 @@ def train_with_feedback(
     max_steps: int = 500,
     update_Cest_interval: int = 5,
     adaptive_cest: bool = True,
+    reset_random: bool = False,
+    pellet_random: bool = False,
 ) -> list:
     """
     Static mode: train using frozen hp/hm as a fixed shaping prior.
@@ -214,7 +216,7 @@ def train_with_feedback(
     rewards = []
 
     for ep in range(n_episodes):
-        trainer.reset_episode()
+        trainer.reset_episode(random=reset_random, pellet_random=pellet_random)
         steps = 0
         prev_action = 0
         while not trainer.done and steps < max_steps:
@@ -252,6 +254,8 @@ def train_individual_condition(
     active_learning_threshold: float = 3.0,
     update_Cest_interval: int = 5,
     adaptive_cest: bool = True,
+    reset_random: bool = False,
+    pellet_random: bool = False,
 ) -> tuple:
     """
     Train with a single participant's feedback in isolation.
@@ -284,6 +288,8 @@ def train_individual_condition(
             update_Cest_interval=update_Cest_interval,
             active_learning_threshold=active_learning_threshold,
             adaptive_cest=adaptive_cest,
+            reset_random=reset_random,
+            pellet_random=pellet_random,
         )
         # Print final line (train_with_human_replay already prints per-interval)
     else:
@@ -293,7 +299,7 @@ def train_individual_condition(
         rewards = []
 
         for ep in range(n_episodes):
-            trainer.reset_episode()
+            trainer.reset_episode(random=reset_random, pellet_random=pellet_random)
             steps = 0
             while not trainer.done and steps < max_steps:
                 trainer.step(feedback=empty_fb, update_Cest=False)
@@ -366,6 +372,8 @@ def train_with_human_replay(
     update_Cest_interval: int = 5,
     active_learning_threshold: float = 3.0,
     adaptive_cest: bool = True,
+    reset_random: bool = False,
+    pellet_random: bool = False,
 ) -> list:
     """
     Train using human feedback replayed at each step — mirrors main_oracle.py.
@@ -388,7 +396,7 @@ def train_with_human_replay(
     rewards = []
 
     for ep in range(n_episodes):
-        trainer.reset_episode(random=False)   # fixed start — matches oracle
+        trainer.reset_episode(random=reset_random, pellet_random=pellet_random)
         prev_action = 0
         steps = 0
 
@@ -431,31 +439,44 @@ def train_without_feedback(
     env_size: str,
     n_episodes: int,
     max_steps: int = 500,
+    reset_random: bool = False,
+    pellet_random: bool = False,
 ) -> list:
     """
     Train a fresh agent for n_episodes with pure Q-learning (no human feedback).
+    Mirrors main_baseline.py exactly:
+      - Explicit terminal Q-update on done or max-steps, so large terminal
+        rewards (±500) are properly propagated into the Q-table.
     Returns list of total reward per episode.
     """
     baseline = PacmanTrainer(
         algID="tabQL_Cest_vi_t2",
         env_size=env_size,
     )
-    # Initialise Q by running one dummy step (triggers the Q is None init block)
-    baseline.agent.act(0, 0, 0.0, False, [[]], 0.5, update_Cest=False)
+    empty_fb = [[]]
     rewards = []
 
     for ep in range(n_episodes):
-        baseline.reset_episode()
-        steps = 0
-        while not baseline.done and steps < max_steps:
-            baseline.step(feedback=[[]], update_Cest=False)
-            steps += 1
+        baseline.reset_episode(random=reset_random, pellet_random=pellet_random)
+
+        for step in range(max_steps):
+            action_idx, ob, rw, done = baseline.step(
+                feedback=empty_fb, update_Cest=False
+            )
+            if done or step == max_steps - 1:
+                # Explicit terminal Q-update — mirrors main_baseline.py
+                baseline.agent.act(
+                    action_idx, ob, rw, done,
+                    empty_fb, 0.5, update_Cest=False
+                )
+                baseline.agent.prev_obs = None
+                break
 
         rewards.append(float(baseline.totRW))
 
         if (ep + 1) % max(1, n_episodes // 10) == 0:
             print(f"  [baseline]   ep {ep+1:>4}/{n_episodes}  "
-                  f"reward={baseline.totRW:>7.2f}  steps={steps:<4}")
+                  f"reward={baseline.totRW:>7.2f}  steps={step+1:<4}")
 
     return rewards, baseline
 
@@ -555,6 +576,12 @@ def main():
                    help="Number of independent training runs with different random "
                         "seeds (default: 1). Use ≥10 to get reliable variance estimates. "
                         "Brains are loaded once; the training loop is repeated per trial.")
+    p.add_argument("--env-random", action="store_true",
+                   help="Randomise pacman and ghost start positions each episode "
+                        "(default: fixed start, matches oracle training setup).")
+    p.add_argument("--pellet-random", action="store_true",
+                   help="Randomise which pellets are active each episode "
+                        "(default: all pellets present every episode).")
     args = p.parse_args()
 
     # Merge --sessions-file into args.sessions
@@ -564,7 +591,7 @@ def main():
             for line in fh:
                 code = line.split("#")[0].strip()
                 if code:
-                    file_sessions.append(code)
+                    file_sessions.append(code.split()[0])  # first token = session name
         args.sessions = list(dict.fromkeys((args.sessions or []) + file_sessions))
 
     adaptive_cest = not args.no_cest
@@ -644,6 +671,8 @@ def main():
                 update_Cest_interval=args.cest_interval,
                 active_learning_threshold=args.al_threshold,
                 adaptive_cest=adaptive_cest,
+                reset_random=args.env_random,
+                pellet_random=args.pellet_random,
             )
         else:
             if args.n_trials == 1:
@@ -654,6 +683,8 @@ def main():
                 max_steps=args.max_steps,
                 update_Cest_interval=args.cest_interval,
                 adaptive_cest=adaptive_cest,
+                reset_random=args.env_random,
+                pellet_random=args.pellet_random,
             )
         all_rewards_fb.append(rewards_fb)
         last_fb_trainer = fb_trainer
@@ -662,7 +693,8 @@ def main():
         if args.n_trials == 1:
             print(f"\n── Training WITHOUT feedback — baseline ({args.n_episodes} episodes) ──")
         rewards_bl, bl_trainer = train_without_feedback(
-            args.env_size, args.n_episodes, max_steps=args.max_steps
+            args.env_size, args.n_episodes, max_steps=args.max_steps,
+            reset_random=args.env_random, pellet_random=args.pellet_random,
         )
         all_rewards_bl.append(rewards_bl)
         last_bl_trainer = bl_trainer
@@ -682,6 +714,8 @@ def main():
                 active_learning_threshold=args.al_threshold,
                 update_Cest_interval=args.cest_interval,
                 adaptive_cest=adaptive_cest,
+                reset_random=args.env_random,
+                pellet_random=args.pellet_random,
             )
             all_rewards_individual[sh].append(rw)
             all_ce_individual[sh].append(ce)

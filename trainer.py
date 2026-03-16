@@ -31,8 +31,8 @@ class PacmanTrainer:
         
         self.reset_episode()
 
-    def reset_episode(self, random=True):
-        self.env.reset(random=random)
+    def reset_episode(self, random=True, pellet_random=False):
+        self.env.reset(random=random, pellet_random=pellet_random)
         self.agent.prev_obs = None
         self.ob = self.env.st2ob()
         self.rw = 0

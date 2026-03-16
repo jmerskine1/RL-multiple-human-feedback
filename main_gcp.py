@@ -42,8 +42,9 @@ app.secret_key = secret("flask_secret", env_var="FLASK_SECRET", default="change-
 GCS_BUCKET = secret("gcs_bucket", env_var="GCS_BUCKET")  # set via secrets.json or env var
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-FEEDBACK_TYPE   = os.environ.get("FEEDBACK_TYPE", "ordinal-feedback")
+FEEDBACK_TYPE        = os.environ.get("FEEDBACK_TYPE", "ordinal-feedback")
 ACTIVE_LEARNING_MODE = "count"
+MAX_STATES           = int(os.environ.get("MAX_STATES", 0))   # 0 = unlimited
 
 _FEEDBACK_TEMPLATES = {
     "binary-feedback":  "index.html",
@@ -308,7 +309,7 @@ def submit():
 
     # ── 3. Persist updated brain and feedback log ─────────────────────────────
     upload_brain(session["session_hash"], trainer.get_brain(), GCS_BUCKET)
-    add_labelled_state(session["session_hash"], int(obs), GCS_BUCKET)
+    n_labelled = add_labelled_state(session["session_hash"], int(obs), GCS_BUCKET)
     append_annotation(session["session_hash"], {
         "obs":       int(obs),
         "action":    action_list[taken_action],
@@ -321,7 +322,12 @@ def submit():
     ce_list.append(float(trainer.agent.Ce[0]))
     session["Ce_list"] = ce_list
 
-    # ── 5. Advance queue or request new bundle ────────────────────────────────
+    # ── 5. Check experiment completion ────────────────────────────────────────
+    if MAX_STATES > 0 and n_labelled >= MAX_STATES:
+        _evict_bundle(session["session_hash"])
+        return redirect(url_for("finished"))
+
+    # ── 6. Advance queue or request new bundle ────────────────────────────────
     q = _sync_queue_idx(bundle)
     if q + 1 < len(bundle["selected_indices"]):
         session["current_queue_idx"] = q + 1
@@ -332,6 +338,12 @@ def submit():
         write_pending(session["session_hash"], GCS_BUCKET)
         return render_template("waiting.html",
                                session_hash=session["session_hash"])
+
+
+@app.route("/finished")
+def finished():
+    return render_template("finished.html",
+                           session_hash=session.get("session_hash", ""))
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────

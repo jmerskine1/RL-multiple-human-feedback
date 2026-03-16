@@ -76,11 +76,13 @@ def get_labelled_states(session_hash: str, bucket_name: str) -> set:
         return set()
     return set(json.loads(blob.download_as_text()))
 
-def add_labelled_state(session_hash: str, obs: int, bucket_name: str) -> None:
+def add_labelled_state(session_hash: str, obs: int, bucket_name: str) -> int:
+    """Add obs to the labelled-state set and return the new total count."""
     states = get_labelled_states(session_hash, bucket_name)
     states.add(int(obs))
     blob = get_bucket(bucket_name).blob(f"feedback/{session_hash}/labelled_states.json")
     blob.upload_from_string(json.dumps(list(states)), content_type="application/json")
+    return len(states)
 
 
 # ── feedback log ──────────────────────────────────────────────────────────────

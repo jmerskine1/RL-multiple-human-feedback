@@ -311,7 +311,8 @@ def collect_state_displays(env_size: str, n_episodes: int,
 
 def build_llm_brain(llm_name: str, state_displays: dict, action_list: list,
                     env_size: str, query_fn, verbose: bool = True,
-                    rate_limit: float = 0.0, max_retries: int = 3) -> dict:
+                    rate_limit: float = 0.0, max_retries: int = 3,
+                    max_states: int = 0) -> dict:
     """
     Query the LLM for every collected state and accumulate hp/hm.
 
@@ -336,6 +337,7 @@ def build_llm_brain(llm_name: str, state_displays: dict, action_list: list,
     rate_limit   : seconds to sleep between requests (0 = no throttle)
     max_retries  : number of retry attempts on rate-limit errors; each retry
                    sleeps for the delay suggested by the API (or 20 s default)
+    max_states   : stop after annotating this many states successfully (0 = unlimited)
 
     Returns a brain dict in the same format as human participant brains,
     ready for upload_brain() or offline_train.py.
@@ -377,6 +379,9 @@ def build_llm_brain(llm_name: str, state_displays: dict, action_list: list,
                 trainer.agent._collect_feedback([[fb]])
                 ok += 1
                 success = True
+                if max_states > 0 and ok >= max_states:
+                    print(f"  [{llm_name}]  max-states limit ({max_states}) reached — stopping.")
+                    abort = True
                 break   # success — exit retry loop
 
             except Exception as e:
@@ -441,6 +446,7 @@ def build_llm_brain(llm_name: str, state_displays: dict, action_list: list,
         "sum_of_right_feedback":  trainer.agent.sum_of_right_feedback,
         "sum_of_wrong_feedback":  trainer.agent.sum_of_wrong_feedback,
         "Nsa":                    trainer.agent.Nsa,
+        "n_annotated_states":     ok,   # reliable count unaffected by neutral scores
     }
 
 
@@ -462,10 +468,15 @@ Your setup (Claude Pro, Gemini Pro, free ChatGPT):
     )
     p.add_argument("--llms", nargs="+", default=None,
                    choices=list(LLM_REGISTRY.keys()), metavar="LLM",
-                   help="Specific LLMs to use. Mutually exclusive with --tier.")
+                   help="Specific LLMs to use. Mutually exclusive with --tier "
+                        "and --participants-file.")
     p.add_argument("--tier", default=None, choices=list(TIER_SHORTCUTS.keys()),
                    help="Select all providers at this capability tier. "
-                        "Mutually exclusive with --llms.")
+                        "Mutually exclusive with --llms and --participants-file.")
+    p.add_argument("--participants-file", default=None, metavar="FILE",
+                   help="Participants config file (e.g. participants.txt). "
+                        "Reads sessions with llm= annotations and saves each brain "
+                        "under its session code. Mutually exclusive with --llms/--tier.")
     p.add_argument("--env-size", default="small",
                    choices=["small", "medium", "medium_sparse"])
     p.add_argument("--n-rollout-episodes", type=int, default=5,
@@ -486,21 +497,45 @@ Your setup (Claude Pro, Gemini Pro, free ChatGPT):
                    help="Max retry attempts per state on rate-limit errors "
                         "(default: 3).  Each retry waits for the delay "
                         "suggested by the API (typically 20 s for Gemini).")
+    p.add_argument("--max-states", type=int, default=0, metavar="N",
+                   help="Stop annotating after N states per LLM (default: 0 = unlimited). "
+                        "Useful for capping annotation cost in large experiments.")
     p.add_argument("--dry-run", action="store_true",
                    help="Collect states and print a sample prompt, "
                         "but do not make any LLM API calls.")
     args = p.parse_args()
 
-    # Resolve --tier / --llms
-    if args.tier and args.llms:
-        p.error("--tier and --llms are mutually exclusive.")
-    if args.tier:
+    # Resolve --participants-file / --tier / --llms (mutually exclusive)
+    n_modes = sum([bool(args.participants_file), bool(args.tier), bool(args.llms)])
+    if n_modes > 1:
+        p.error("--participants-file, --tier, and --llms are mutually exclusive.")
+    if n_modes == 0:
+        p.error("Provide one of: --participants-file, --llms, or --tier.")
+
+    # Build (session_code, llm_name) pairs
+    # In participants-file mode each LLM gets its own session code from the file.
+    # In llms/tier mode the session code follows the legacy LLM_<name> convention.
+    if args.participants_file:
+        from bundle_generator import parse_participants_config
+        per_session_cfg = parse_participants_config(args.participants_file)
+        llm_sessions = [
+            (session_code, cfg["llm"])
+            for session_code, cfg in per_session_cfg.items()
+            if cfg.get("llm")
+        ]
+        if not llm_sessions:
+            p.error(f"No sessions with llm= found in {args.participants_file}")
+        llm_names = list({llm for _, llm in llm_sessions})
+        print(f"  Loaded {len(llm_sessions)} LLM session(s) from {args.participants_file}")
+        for code, llm in llm_sessions:
+            print(f"    {code:30s} → {llm}")
+    elif args.tier:
         llm_names = TIER_SHORTCUTS[args.tier]
+        llm_sessions = [(f"LLM_{n}", n) for n in llm_names]
         print(f"  Tier '{args.tier}' selected: {llm_names}")
-    elif args.llms:
-        llm_names = args.llms
     else:
-        p.error("Provide either --llms or --tier.")
+        llm_names = args.llms
+        llm_sessions = [(f"LLM_{n}", n) for n in llm_names]
 
     os.makedirs(args.save_dir, exist_ok=True)
 
@@ -563,20 +598,67 @@ Your setup (Claude Pro, Gemini Pro, free ChatGPT):
         print(f"\n── Expected response format ──")
         print('{"scores": {"n": 0.8, "s": 0.1, "e": 0.6, "w": 0.05},')
         print(' "reasoning": "move toward nearest pellet, away from ghost"}')
-        print(f"\n(dry run — {len(state_displays)} states would be scored "
-              f"per LLM, no API calls made)")
+        n_states_each = args.max_states if args.max_states > 0 else len(state_displays)
+        print(f"\n(dry run — {n_states_each} states would be scored "
+              f"per LLM across {len(llm_sessions)} session(s), no API calls made)")
         return
 
     # ── 3. Annotate with each LLM ──────────────────────────────────────────────
-    for llm_name in llm_names:
+    completed_sessions = []
+    for session_code, llm_name in llm_sessions:
         cfg      = LLM_REGISTRY[llm_name]
         provider = cfg["provider"]
         model    = cfg["model"]
         tier     = cfg["tier"]
-        session  = f"LLM_{llm_name}"
+        max_s    = args.max_states
 
+        # ── Skip sessions already at the target annotation count ──────────────
+        if max_s > 0:
+            existing_brain = None
+            # Check under the session code name (new participants-file convention)
+            # AND the legacy LLM_<name> name (old --llms convention) so that
+            # brains from a previous --llms run are detected and not re-run.
+            legacy_name   = f"LLM_{llm_name}"
+            paths_to_try  = [
+                (os.path.join(args.save_dir, f"{session_code}_brain.pkl"), session_code),
+                (os.path.join(args.save_dir, f"{legacy_name}_brain.pkl"),  legacy_name),
+            ]
+            for _path, _label in paths_to_try:
+                if os.path.exists(_path):
+                    with open(_path, "rb") as _f:
+                        existing_brain = pickle.load(_f)
+                    print(f"  [{session_code}]  found local brain ({_label}) → checking annotation count…")
+                    break
+
+            if existing_brain is None and args.bucket:
+                from gcs_utils import download_brain as _dl_brain
+                for _gcs_code in (session_code, legacy_name):
+                    try:
+                        existing_brain = _dl_brain(_gcs_code, args.bucket)
+                        if existing_brain:
+                            print(f"  [{session_code}]  found GCS brain ({_gcs_code}) → checking annotation count…")
+                            break
+                    except Exception as _e:
+                        print(f"  [{session_code}]  GCS lookup failed for {_gcs_code} ({_e})")
+
+            if existing_brain is not None:
+                # Prefer the explicit counter stored in the brain (reliable).
+                # Fall back to hp-based count for brains saved before this field existed.
+                n_annotated = existing_brain.get("n_annotated_states")
+                if n_annotated is None:
+                    hp = existing_brain.get("hp")
+                    n_annotated = int(np.any(hp[0] > 0, axis=1).sum()) if hp is not None else 0
+                if n_annotated >= max_s:
+                    print(f"  [{session_code}]  already has {n_annotated}/{max_s} states — skipping.\n")
+                    completed_sessions.append(session_code)
+                    continue
+                else:
+                    print(f"  [{session_code}]  only {n_annotated}/{max_s} states — re-running.\n")
+
+        label = (f"{max_s} states" if max_s > 0
+                 else f"{len(state_displays)} states")
         print(f"── Annotating with {llm_name} [{tier}] ({model}) "
-              f"→ session: {session} ──")
+              f"→ session: {session_code}  [{label}] ──")
 
         if provider == "anthropic":
             query_fn = lambda disp, acts, _m=model: \
@@ -595,10 +677,11 @@ Your setup (Claude Pro, Gemini Pro, free ChatGPT):
             query_fn=query_fn,
             rate_limit=args.rate_limit,
             max_retries=args.max_retries,
+            max_states=max_s,
         )
 
         # ── Save locally ───────────────────────────────────────────────────────
-        local_path = os.path.join(args.save_dir, f"{session}_brain.pkl")
+        local_path = os.path.join(args.save_dir, f"{session_code}_brain.pkl")
         with open(local_path, "wb") as f:
             pickle.dump(brain, f)
         print(f"  Saved locally → {local_path}")
@@ -606,17 +689,17 @@ Your setup (Claude Pro, Gemini Pro, free ChatGPT):
         # ── Upload to GCS ──────────────────────────────────────────────────────
         if args.bucket:
             from gcs_utils import upload_brain
-            upload_brain(session, brain, args.bucket)
-            print(f"  Uploaded → gs://{args.bucket}/brains/{session}/brain.pkl")
+            upload_brain(session_code, brain, args.bucket)
+            print(f"  Uploaded → gs://{args.bucket}/brains/{session_code}/brain.pkl")
 
+        completed_sessions.append(session_code)
         print()
 
     # ── 4. Summary ────────────────────────────────────────────────────────────
-    session_names = [f"LLM_{n}" for n in llm_names]
     print("── Done ──")
-    print(f"  LLM sessions: {session_names}")
+    print(f"  Sessions annotated: {completed_sessions}")
     if args.bucket:
-        all_sessions = " ".join(session_names)
+        all_sessions = " ".join(completed_sessions)
         print(f"\n  Run offline training with:")
         print(f"    python offline_train.py \\")
         print(f"        --bucket {args.bucket} \\")
@@ -625,10 +708,9 @@ Your setup (Claude Pro, Gemini Pro, free ChatGPT):
     else:
         print(f"\n  Brain files saved to: {args.save_dir}/")
         print(f"  Upload manually with:")
-        for name in llm_names:
-            session = f"LLM_{name}"
-            print(f"    gsutil cp {args.save_dir}/{session}_brain.pkl "
-                  f"gs://<bucket>/brains/{session}/brain.pkl")
+        for code in completed_sessions:
+            print(f"    gsutil cp {args.save_dir}/{code}_brain.pkl "
+                  f"gs://<bucket>/brains/{code}/brain.pkl")
 
 
 if __name__ == "__main__":

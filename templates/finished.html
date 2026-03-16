@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Experiment Complete — Human Feedback for PACMAN</title>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='styles/mainpage.css') }}">
+    <style>
+        .finished-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 70vh;
+            gap: 24px;
+            text-align: center;
+            padding: 40px;
+        }
+        .finished-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            padding: 48px 56px;
+            border: 2px solid #FFD700;
+            border-radius: 10px;
+            background: #0a0a0a;
+            min-width: 380px;
+            max-width: 600px;
+        }
+        .finished-icon {
+            font-size: 3em;
+            line-height: 1;
+        }
+        .finished-title {
+            font-family: 'EmuLogic', monospace;
+            font-size: 1.4em;
+            color: #FFD700;
+            letter-spacing: 0.05em;
+            margin: 0;
+        }
+        .finished-body {
+            font-family: monospace;
+            font-size: 0.9em;
+            color: #FFD700;
+            line-height: 1.9;
+            text-align: center;
+        }
+        .finished-body .highlight {
+            color: #ffffff;
+            font-weight: bold;
+        }
+        .session-code {
+            font-family: 'EmuLogic', monospace;
+            background: #111;
+            color: #FFD700;
+            padding: 6px 14px;
+            border-radius: 6px;
+            border: 1px solid #444;
+            font-size: 0.85em;
+            letter-spacing: 0.15em;
+            user-select: all;
+        }
+        .divider {
+            width: 100%;
+            border: none;
+            border-top: 1px solid #333;
+            margin: 4px 0;
+        }
+        .logout-link {
+            font-family: monospace;
+            font-size: 0.8em;
+            color: #555;
+            text-decoration: none;
+            margin-top: 8px;
+        }
+        .logout-link:hover {
+            color: #888;
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <h1>Human feedback for Pacman</h1>
+
+    <div class="finished-container">
+        <div class="finished-box">
+
+            <div class="finished-icon">🎉</div>
+
+            <h2 class="finished-title">Experiment Complete!</h2>
+
+            <hr class="divider">
+
+            <p class="finished-body">
+                <span class="highlight">Thank you for your participation.</span><br><br>
+                You have rated all the required states for this experiment.<br>
+                Your feedback has been saved and will be used to train<br>
+                the Pac-Man agent.
+            </p>
+
+            <p class="finished-body">
+                Please let the researcher know you have finished.<br>
+                You may now close this tab.
+            </p>
+
+            {% if session_hash %}
+            <p class="finished-body" style="color: #555; font-size: 0.8em; margin-top: 4px;">
+                Session ID: <span class="session-code">{{ session_hash }}</span>
+            </p>
+            {% endif %}
+
+            <a class="logout-link" href="/logout">↩ Switch participant</a>
+        </div>
+    </div>
+</body>
+</html>

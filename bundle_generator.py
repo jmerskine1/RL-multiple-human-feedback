@@ -49,6 +49,45 @@ from gcs_utils import (
 )
 
 
+# ── per-participant config ────────────────────────────────────────────────────
+
+def parse_participants_config(filepath: str) -> dict:
+    """
+    Parse a participants config file and return a dict of per-session settings.
+
+    File format (all inline options are optional):
+        SESSION_CODE  [mode=count|entropy]  [env=random]  [pellets=random]
+
+    Returns:
+        {session_code: {"mode": str, "env_random": bool, "pellet_random": bool}}
+
+    Lines starting with # (after stripping) are ignored.
+    """
+    config = {}
+    with open(filepath) as fh:
+        for line in fh:
+            line = line.split("#")[0].strip()
+            if not line:
+                continue
+            parts = line.split()
+            session = parts[0]
+            opts = {"mode": "count", "env_random": False, "pellet_random": False,
+                    "llm": None}
+            for part in parts[1:]:
+                if part == "mode=entropy":
+                    opts["mode"] = "entropy"
+                elif part == "mode=count":
+                    opts["mode"] = "count"
+                elif part == "env=random":
+                    opts["env_random"] = True
+                elif part == "pellets=random":
+                    opts["pellet_random"] = True
+                elif part.startswith("llm="):
+                    opts["llm"] = part[4:]   # e.g. llm=claude-small → "claude-small"
+            config[session] = opts
+    return config
+
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _encode_figure(fig) -> str:
@@ -72,9 +111,14 @@ def generate_bundle(
     max_steps: int = 500,
     max_attempts: int = 5,
     force: bool = False,
+    env_random: bool = True,
+    pellet_random: bool = False,
 ) -> dict | None:
     """
     Generate and upload a feedback bundle for one session.
+
+    env_random    : randomise pacman + ghost start positions each episode.
+    pellet_random : randomise which pellets are active each episode.
 
     Returns the bundle dict, or None if no unlabelled states were found.
     """
@@ -104,7 +148,7 @@ def generate_bundle(
     valid_indices = []
 
     for attempt in range(max_attempts):
-        trainer.reset_episode(random=True)
+        trainer.reset_episode(random=env_random, pellet_random=pellet_random)
         plots, obs_list, act_list, status_list, vm_list, fp = [], [], [], [], [], []
 
         print(f"[{session_hash}] attempt {attempt + 1}: running episode …", end=" ", flush=True)
@@ -199,21 +243,39 @@ def main():
     p = argparse.ArgumentParser(description="Generate GCS feedback bundles locally.")
     p.add_argument("--bucket",      required=True,  help="GCS bucket name")
     p.add_argument("--session",     default=None,   help="Session hash (participant ID). "
-                                                         "Omit with --all-sessions.")
+                                                         "Omit with --all-sessions or --participants-file.")
     p.add_argument("--all-sessions",action="store_true",
-                   help="Generate for every session that has a brain in GCS.")
+                   help="Generate for every session that has a brain in GCS "
+                        "(uses global --mode/--env-random/--pellet-random for all).")
+    p.add_argument("--participants-file", default=None, metavar="FILE",
+                   help="Participants config file (e.g. participants.txt). "
+                        "Each line: SESSION_CODE [mode=count|entropy] [env=random] [pellets=random]. "
+                        "Per-session settings override the global --mode/--env-random/--pellet-random flags.")
     p.add_argument("--n-feedbacks", type=int,  default=10, help="States per bundle")
     p.add_argument("--mode",        default="count",
-                   choices=["count", "entropy"], help="Active learning utility")
+                   choices=["count", "entropy"], help="Default active learning utility")
     p.add_argument("--env-size",    default="small",
                    choices=["small", "medium", "medium_sparse"])
     p.add_argument("--max-steps",   type=int,  default=500)
+    p.add_argument("--env-random",  action="store_true",
+                   help="Randomise pacman + ghost start positions (global default; "
+                        "can be overridden per-session via --participants-file)")
+    p.add_argument("--pellet-random", action="store_true",
+                   help="Randomise active pellets (global default; "
+                        "can be overridden per-session via --participants-file)")
     p.add_argument("--force",       action="store_true",
                    help="Overwrite existing bundles")
     args = p.parse_args()
 
-    if args.all_sessions:
-        # Discover sessions from brains/ prefix in GCS
+    # Build per-session config: start from participants file (if given),
+    # then fall back to global CLI flags for any session not listed there.
+    per_session_cfg = {}
+    if args.participants_file:
+        per_session_cfg = parse_participants_config(args.participants_file)
+        sessions = [s for s in per_session_cfg
+                    if not s.startswith("LLM_") and not per_session_cfg[s].get("llm")]
+        print(f"Loaded {len(sessions)} session(s) from {args.participants_file}")
+    elif args.all_sessions:
         bucket = get_bucket(args.bucket)
         sessions = [
             b.name.split("/")[1]
@@ -223,21 +285,28 @@ def main():
         if not sessions:
             print("No brains found in GCS — nothing to generate.")
             return
-        print(f"Found {len(sessions)} session(s): {sessions}")
+        print(f"Found {len(sessions)} session(s) in GCS: {sessions}")
     else:
         if not args.session:
-            p.error("Provide --session <hash> or use --all-sessions")
+            p.error("Provide --session <hash>, --all-sessions, or --participants-file")
         sessions = [args.session]
 
     for sh in sessions:
+        cfg = per_session_cfg.get(sh, {})
+        mode         = cfg.get("mode",         args.mode)
+        env_random   = cfg.get("env_random",   args.env_random)
+        pellet_random = cfg.get("pellet_random", args.pellet_random)
+        print(f"[{sh}] mode={mode}  env_random={env_random}  pellet_random={pellet_random}")
         generate_bundle(
             session_hash=sh,
             bucket_name=args.bucket,
             n_feedbacks=args.n_feedbacks,
-            mode=args.mode,
+            mode=mode,
             env_size=args.env_size,
             max_steps=args.max_steps,
             force=args.force,
+            env_random=env_random,
+            pellet_random=pellet_random,
         )
 
 
