@@ -1,0 +1,10 @@
+name: RL_MHF
+
+dependencies:
+  - python=3.9
+  - numpy
+  - jax
+  - matplotlib
+  - pandas
+  - scipy
+  - tqdm
