@@ -28,6 +28,29 @@ HANDY-ALLEGATION
 # REMARKABLE-NORTH
 # WEAK-RECESSION
 
+# ── Human experiments ──────────────────────────────────────────────────────────
+# 4 experiments × 3 humans = 12 session codes
+
+# Exp 1: count, non-random
+AMBER-FOREST      mode=count #berenika
+BRIGHT-CANYON     mode=count #matt
+CLEAN-VOYAGE      mode=count #miquel
+
+# Exp 2: entropy, non-random
+FAINT-ORBIT       mode=entropy #raul
+GIANT-VESSEL      mode=entropy #yujie
+HOLLOW-BRIDGE     mode=entropy #elena
+
+# Exp 3: count, random env + pellets
+IVORY-SPARK       mode=count   env=random pellets=random #jack
+JUMPY-CLOUD       mode=count   env=random pellets=random #david
+LUCKY-BARREL      mode=count   env=random pellets=random #jono
+
+# Exp 4: entropy, random env + pellets
+MISTY-CEDAR       mode=entropy env=random pellets=random #tashi
+NOBLE-PEBBLE      mode=entropy env=random pellets=random #jonny
+OLIVE-STREAM      mode=entropy env=random pellets=random
+
 # ── LLM experiments ────────────────────────────────────────────────────────────
 # 4 experiments × 6 LLMs = 24 session codes
 # LLMs: claude-small, claude-large, gpt4o-mini, gpt4o, gemini-small, gemini-large
