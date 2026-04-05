@@ -1,0 +1,14 @@
+# GCP / Cloud Run requirements for main_gcp.py
+# Stripped-down vs. requirements.txt:
+#   - NO redis / Flask-KVSession / Flask-SQLAlchemy  (cookie sessions + GCS instead)
+#   - NO torch / gym / gymnasium / jax               (no RL training on GCP)
+#   - matplotlib kept: envPacMan.py imports it at module level (headless agg backend)
+#   - google-cloud-storage added for GCS bundle/brain/feedback persistence
+
+Flask>=3.0
+gunicorn>=21.2
+google-cloud-storage>=2.16
+
+numpy>=1.26
+scipy>=1.12
+matplotlib>=3.8

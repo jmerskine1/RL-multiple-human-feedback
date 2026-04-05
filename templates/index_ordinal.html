@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+
+{% block title %}Human Feedback for PACMAN – Ordinal{% endblock %}
+
+{% block extra_styles %}
+    /* Unrated valid buttons pulse to prompt the user */
+    @keyframes pulse-border {
+        0%, 100% { border-color: #4663FF; box-shadow: 0 0 0 0 rgba(70,99,255,0.5); }
+        50%       { border-color: #FFD700; box-shadow: 0 0 0 4px rgba(255,215,0,0.35); }
+    }
+    .arrow_button.unrated:not(.disabled) {
+        animation: pulse-border 1.5s ease-in-out infinite;
+    }
+    /* Override body cursive font for UI hint text */
+    #rate-hint {
+        font-family: monospace, Arial, Helvetica, sans-serif;
+    }
+    /* No !important — JS inline styles must be able to override these */
+    .arrow_button {
+        position: relative;
+        width: 60px;
+        height: 60px;
+        font-size: 20px;
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        user-select: none;
+        -webkit-user-select: none;
+        background-color: #1a1a1a;
+        border-color: #4663FF;
+        color: #4663FF;
+    }
+    .arrow_button .value-label {
+        font-size: 9px;
+        line-height: 1;
+        margin-top: 2px;
+        color: inherit;
+    }
+    .arrow_button .fill-bar {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        height: 4px;
+        width: 0%;
+        background: rgba(255, 255, 255, 0.7);
+        border-radius: 0 0 3px 3px;
+    }
+{% endblock %}
+
+{% block instruction_title %}Rate each possible move for the Pacman agent:{% endblock %}
+
+{% block instructions %}
+    <li><strong>What you're seeing:</strong> a snapshot of a Pacman game.
+        The <strong style="color:#FFD700">yellow</strong> sprite is the agent — faded copies show where it was 1–2 steps ago.
+        The <strong style="color:#FF6B6B">red</strong> sprite is the ghost. 🍒 are collectible pellets.
+        Dark blue lines are walls.</li><br>
+    <li><strong>Your task:</strong> rate each direction the agent <em>could</em> move from this position.
+        Greyed-out arrows are blocked by walls — ignore them.
+        You <strong>must rate every valid arrow</strong> before you can submit.</li><br>
+    <li><strong>How to score:</strong> hold an arrow button (or hold the arrow key on your keyboard).
+        0 = <strong style="color:#ff4444">bad move</strong>, 1 = <strong style="color:#00C851">good move</strong>.
+        The longer you hold, the higher the score. Release when you're happy with the value.</li><br>
+    <li><strong>Changed your mind?</strong> Hold the button again to reset and re-score it.</li><br>
+    <li>When all valid arrows are rated, click <strong>Submit</strong> or press <strong>SPACE</strong> to move on.</li><br>
+{% endblock %}
+
+{% block feedback_controls %}
+    <div class="key-grid">
+        <div></div>
+        <button type="button" class="arrow_button {{ 'disabled' if not valid_moves[0] }} unrated" id="ArrowUp">↑<span class="value-label" id="val-ArrowUp">–</span><span class="fill-bar" id="fill-ArrowUp"></span></button>
+        <div></div>
+        <button type="button" class="arrow_button {{ 'disabled' if not valid_moves[3] }} unrated" id="ArrowLeft">←<span class="value-label" id="val-ArrowLeft">–</span><span class="fill-bar" id="fill-ArrowLeft"></span></button>
+        <button type="button" class="arrow_button {{ 'disabled' if not valid_moves[1] }} unrated" id="ArrowDown">↓<span class="value-label" id="val-ArrowDown">–</span><span class="fill-bar" id="fill-ArrowDown"></span></button>
+        <button type="button" class="arrow_button {{ 'disabled' if not valid_moves[2] }} unrated" id="ArrowRight">→<span class="value-label" id="val-ArrowRight">–</span><span class="fill-bar" id="fill-ArrowRight"></span></button>
+    </div>
+    <p id="rate-hint" style="font-size:11px; margin-top:6px; text-align:center; color:#FFD700;">Rate all valid moves to submit</p>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const ARROW_IDS = ['ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'];
+        
+        function isButtonDisabled(id) {
+            const btn = document.getElementById(id);
+            return btn && btn.classList.contains('disabled');
+        }
+
+        const arrowToDir = {
+            'ArrowUp':    'arrowup',
+            'ArrowLeft':  'arrowleft',
+            'ArrowDown':  'arrowdown',
+            'ArrowRight': 'arrowright',
+        };
+
+        const HOLD_DURATION_MS = 2000;
+        const TICK_MS = 30;
+
+        // Track which valid buttons the user has explicitly interacted with
+        const touched  = new Set();
+        const validIds = ARROW_IDS.filter(id => !isButtonDisabled(id));
+
+        const submitBtn = document.getElementById('Spacebar');
+        const rateHint  = document.getElementById('rate-hint');
+
+        function updateSubmitGate() {
+            const done     = validIds.filter(id => touched.has(id)).length;
+            const allDone  = done === validIds.length;
+            submitBtn.disabled       = !allDone;
+            submitBtn.style.opacity  = allDone ? '1' : '0.35';
+            submitBtn.style.cursor   = allDone ? 'pointer' : 'not-allowed';
+            if (rateHint) {
+                rateHint.textContent = allDone
+                    ? '✓ Ready — click Submit or press SPACE'
+                    : `Rate all valid moves to submit (${done} / ${validIds.length} done)`;
+                rateHint.style.color = allDone ? '#00C851' : '#FFD700';
+            }
+        }
+
+        // Initialise submit as disabled
+        updateSubmitGate();
+
+        const state = {};
+        ARROW_IDS.forEach(id => { state[id] = { value: 0.5, timer: null }; });
+
+        function valueToColor(v) {
+            return `hsl(${Math.round(v * 120)}, 100%, 38%)`;
+        }
+
+        function updateButton(id) {
+            const v    = state[id].value;
+            const btn  = document.getElementById(id);
+            const lbl  = document.getElementById('val-' + id);
+            const fill = document.getElementById('fill-' + id);
+            if (touched.has(id)) {
+                const c = valueToColor(v);
+                btn.style.backgroundColor = c;
+                btn.style.borderColor     = c;
+                btn.style.color           = '#fff';
+                btn.style.animation       = 'none';   // stop pulse once rated
+            } else {
+                btn.style.backgroundColor = '#1a1a1a';
+                btn.style.borderColor     = '';        // let CSS pulse handle it
+                btn.style.color           = '#4663FF';
+            }
+            lbl.textContent  = touched.has(id) ? v.toFixed(2) : '–';
+            fill.style.width = (v * 100) + '%';
+        }
+
+        function startHold(id) {
+            if (isButtonDisabled(id)) return;
+            stopHold(id);
+            state[id].value = 0;
+            touched.add(id);          // mark as rated on first interaction
+            updateButton(id);
+            updateSubmitGate();
+            state[id].timer = setInterval(() => {
+                state[id].value = Math.min(1, state[id].value + TICK_MS / HOLD_DURATION_MS);
+                updateButton(id);
+                if (state[id].value >= 1) stopHold(id);
+            }, TICK_MS);
+        }
+
+        function stopHold(id) {
+            if (state[id].timer) {
+                clearInterval(state[id].timer);
+                state[id].timer = null;
+            }
+        }
+
+        ARROW_IDS.forEach(id => {
+            const btn = document.getElementById(id);
+            btn.addEventListener('mousedown',  (e) => { e.preventDefault(); startHold(id); });
+            btn.addEventListener('mouseup',    ()  => stopHold(id));
+            btn.addEventListener('mouseleave', ()  => stopHold(id));
+            btn.addEventListener('touchstart', (e) => { e.preventDefault(); startHold(id); }, { passive: false });
+            btn.addEventListener('touchend',   ()  => stopHold(id));
+        });
+
+        const keyHeld = {};
+        document.addEventListener('keydown', function (event) {
+            if (ARROW_IDS.includes(event.key)) {
+                event.preventDefault();
+                if (!keyHeld[event.key] && !isButtonDisabled(event.key)) {
+                    keyHeld[event.key] = true;
+                    startHold(event.key);
+                }
+            }
+            if (event.key === ' ' || event.keyCode === 32) {
+                event.preventDefault();
+                submitValues();
+            }
+        });
+        document.addEventListener('keyup', function (event) {
+            if (ARROW_IDS.includes(event.key)) {
+                keyHeld[event.key] = false;
+                stopHold(event.key);
+            }
+        });
+
+        document.getElementById('Spacebar').addEventListener('click', function () {
+            submitValues();
+        });
+
+        function submitValues() {
+            // Guard: all valid moves must have been rated
+            if (!validIds.every(id => touched.has(id))) return;
+            // Prevent double-submission
+            submitBtn.disabled = true;
+            submitBtn.style.opacity = '0.35';
+            const values = {};
+            ARROW_IDS.forEach(id => {
+                values[arrowToDir[id]] = parseFloat(state[id].value.toFixed(3));
+            });
+            fetch('/submit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ values: values })
+            })
+            .then(response => response.text())
+            .then(html => { document.open(); document.write(html); document.close(); })
+            .catch(error => console.error('Submit error:', error));
+        }
+    });
+</script>
+{% endblock %}

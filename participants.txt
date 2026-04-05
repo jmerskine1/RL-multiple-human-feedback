@@ -1,0 +1,94 @@
+# Participant config file
+# ──────────────────────────────────────────────────────────────────────────────
+# Format (all options are optional — defaults shown):
+#   SESSION_CODE  [mode=count|entropy]  [env=random]  [pellets=random]  [llm=<name>]
+#
+# mode=count    : active-learning by visit count  (default)
+# mode=entropy  : active-learning by Q-value entropy
+# env=random    : randomise pacman + ghost start positions each bundle episode
+# pellets=random: randomise which pellets are active each bundle episode
+# llm=<name>    : LLM annotator key (see LLM_REGISTRY in llm_annotate.py)
+#                 Sessions with llm= are skipped by bundle_generator.py
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Human participants
+NUMEROUS-DIFFERENCE
+CASUAL-JAIL
+EXCITING-ECONOMICS
+ELEGANT-THREAT
+HANDY-ALLEGATION
+
+# PRELIMINARY-BALCONY
+# BOURGEOIS-INVENTION
+# NATIONAL-ACTOR
+# EQUAL-CONSTITUENT
+# COMPARATIVE-AUCTION
+
+# FINANCIAL-SWIMMING
+# REMARKABLE-NORTH
+# WEAK-RECESSION
+
+# ── Human experiments ──────────────────────────────────────────────────────────
+# 4 experiments × 3 humans = 12 session codes
+
+# Exp 1: count, non-random
+AMBER-FOREST      mode=count #berenika
+BRIGHT-CANYON     mode=count #matt
+CLEAN-VOYAGE      mode=count #miquel
+
+# Exp 2: entropy, non-random
+FAINT-ORBIT       mode=entropy #raul
+GIANT-VESSEL      mode=entropy #yujie
+HOLLOW-BRIDGE     mode=entropy #elena
+
+# Exp 3: count, random env + pellets
+IVORY-SPARK       mode=count   env=random pellets=random #jack
+JUMPY-CLOUD       mode=count   env=random pellets=random #david
+LUCKY-BARREL      mode=count   env=random pellets=random #jono
+
+# Exp 4: entropy, random env + pellets
+MISTY-CEDAR       mode=entropy env=random pellets=random #tashi
+NOBLE-PEBBLE      mode=entropy env=random pellets=random #jonny
+OLIVE-STREAM      mode=entropy env=random pellets=random
+
+# ── LLM experiments ────────────────────────────────────────────────────────────
+# 4 experiments × 6 LLMs = 24 session codes
+# LLMs: claude-small, claude-large, gpt4o-mini, gpt4o, gemini-small, gemini-large
+#
+# Exp 1: count,   non-random env + pellets  (fixed environment, count utility)
+# Exp 2: entropy, non-random env + pellets  (fixed environment, entropy utility)
+# Exp 3: count,   random env + pellets      (random environment, count utility)
+# Exp 4: entropy, random env + pellets      (random environment, entropy utility)
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Exp 1: count, non-random
+ABLE-VERDICT      mode=count                             llm=claude-small
+BRAVE-COMPASS     mode=count                             llm=claude-large
+CALM-HORIZON      mode=count                             llm=gpt4o-mini
+DEFT-LANTERN      mode=count                             llm=gpt4o
+EAGER-SUMMIT      mode=count                             llm=gemini-small
+FAIR-ANCHOR       mode=count                             llm=gemini-large
+
+# Exp 2: entropy, non-random
+GRAND-CIRCUIT     mode=entropy                           llm=claude-small
+HEAVY-MARBLE      mode=entropy                           llm=claude-large
+INNER-TROPHY      mode=entropy                           llm=gpt4o-mini
+JOLLY-BEACON      mode=entropy                           llm=gpt4o
+KEEN-SECTOR       mode=entropy                           llm=gemini-small
+LOYAL-FOSSIL      mode=entropy                           llm=gemini-large
+
+# Exp 3: count, random env + pellets
+MERRY-VECTOR      mode=count   env=random pellets=random llm=claude-small
+NOVEL-CASTLE      mode=count   env=random pellets=random llm=claude-large
+OPEN-RIDDLE       mode=count   env=random pellets=random llm=gpt4o-mini
+PRIME-SOCKET      mode=count   env=random pellets=random llm=gpt4o
+QUIET-FALCON      mode=count   env=random pellets=random llm=gemini-small
+RAPID-ISLAND      mode=count   env=random pellets=random llm=gemini-large
+
+# Exp 4: entropy, random env + pellets
+SHARP-NEBULA      mode=entropy env=random pellets=random llm=claude-small
+TIDY-HARBOR       mode=entropy env=random pellets=random llm=claude-large
+URBAN-PORTAL      mode=entropy env=random pellets=random llm=gpt4o-mini
+VIVID-GOBLIN      mode=entropy env=random pellets=random llm=gpt4o
+WITTY-PRISM       mode=entropy env=random pellets=random llm=gemini-small
+YOUNG-TURRET      mode=entropy env=random pellets=random llm=gemini-large

@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Human Feedback for PACMAN{% endblock %}
+
+{% block extra_styles %}
+    .arrow_button  { width: 50px; height: 50px; font-size: 18px; }
+{% endblock %}
+
+{% block instruction_title %}To provide feedback to our RL pacman agent:{% endblock %}
+
+{% block instructions %}
+    <li>Look at the current state. Decide which direction would be best for Pacman to move.</li><br>
+    <li>Select that direction using the arrow buttons or your arrow keys. Faded sprites show where Pacman and the ghost were in the last two steps.</li><br>
+    <li>Submit your feedback by clicking 'Submit' or pressing SPACE. This moves to the next time step.</li><br>
+{% endblock %}
+
+{% block feedback_controls %}
+    <div class="key-grid">
+        <div></div>
+        <button class="arrow_button {{ 'disabled' if not valid_moves[0] }}" id="ArrowUp">↑</button>
+        <div></div>
+        <button class="arrow_button {{ 'disabled' if not valid_moves[3] }}" id="ArrowLeft">←</button>
+        <button class="arrow_button {{ 'disabled' if not valid_moves[1] }}" id="ArrowDown">↓</button>
+        <button class="arrow_button {{ 'disabled' if not valid_moves[2] }}" id="ArrowRight">→</button>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        var arrowButtons = {
+            "ArrowUp":    document.getElementById("ArrowUp"),
+            "ArrowLeft":  document.getElementById("ArrowLeft"),
+            "ArrowDown":  document.getElementById("ArrowDown"),
+            "ArrowRight": document.getElementById("ArrowRight")
+        };
+
+        var currentArrowButton = null;
+
+        function isButtonDisabled(btn) {
+            return btn && btn.classList.contains('disabled');
+        }
+
+        document.getElementById("Spacebar").addEventListener("click", function () {
+            if (currentArrowButton) {
+                sendArrowValue(currentArrowButton.id.toLowerCase());
+            }
+        });
+
+        Object.values(arrowButtons).forEach(function (button) {
+            button.addEventListener("click", function () {
+                if (isButtonDisabled(button)) return;
+                if (currentArrowButton) currentArrowButton.classList.remove("active");
+                button.classList.add("active");
+                currentArrowButton = button;
+            });
+        });
+
+        document.addEventListener("keydown", function (event) {
+            if (arrowButtons.hasOwnProperty(event.key)) {
+                var button = arrowButtons[event.key];
+                if (isButtonDisabled(button)) return;
+                event.preventDefault();
+                if (currentArrowButton) currentArrowButton.classList.remove("active");
+                button.classList.add("active");
+                currentArrowButton = button;
+            }
+            if (event.key === " " || event.keyCode === 32) {
+                event.preventDefault();
+                if (currentArrowButton) {
+                    sendArrowValue(currentArrowButton.id.toLowerCase());
+                }
+            }
+        });
+
+        function sendArrowValue(arrow) {
+            fetch('/submit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ arrow: arrow })
+            })
+            .then(response => response.text())
+            .then(html => { document.open(); document.write(html); document.close(); })
+            .catch(error => console.error('Error:', error));
+        }
+    });
+</script>
+{% endblock %}

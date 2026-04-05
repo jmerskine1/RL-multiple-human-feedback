@@ -1,0 +1,45 @@
+# This file specifies files that are *not* uploaded to Google Cloud
+# using gcloud. It follows the same syntax as .gitignore, with the addition of
+# "#!include" directives (which insert the entries of the given .gitignore-style
+# file at that point).
+#
+# For more information, run:
+#   $ gcloud topic gcloudignore
+#
+.gcloudignore
+# If you would like to upload your .git directory, .gitignore file or files
+# from your .gitignore file, remove the corresponding line
+# below:
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+/setup.cfg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Local-only data files
+*.pkl
+*.db
+*.sqlite
+learnedStates/
+results/
+
+# Local-only scripts (not needed on GCP)
+main.py
+main_train_oracle.py
+run.py
+bundle_generator.py
+requirements.txt
+
+# Secrets — never upload to GCP
+secrets.json
+
+# Mac
+.DS_Store

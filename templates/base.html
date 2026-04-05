@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Human Feedback for PACMAN{% endblock %}</title>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='styles/mainpage.css') }}">
+    <style>
+        .layout {
+            display: flex;
+            gap: 24px;
+            align-items: flex-start;
+            padding: 10px;
+        }
+        .col-left   { flex: 0 0 22%; min-width: 180px; }
+        .col-center { flex: 1; display: flex; flex-direction: column; align-items: center; }
+        .col-right  { flex: 0 0 200px; display: flex; flex-direction: column; align-items: center; gap: 12px; padding-top: 30px; padding-right: 100px; }
+        .key-grid {
+            display: inline-grid;
+            grid-template-columns: repeat(3, 60px);
+            grid-template-rows: repeat(2, 60px);
+            gap: 4px;
+        }
+        .spacebar-button { width: 160px; }
+        .nav-buttons { display: flex; gap: 8px; }
+        
+        .arrow_button.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            pointer-events: none;
+            background-color: #2a2a2a !important;
+            border-color: #666 !important;
+            color: #999 !important;
+        }
+        
+        {% block extra_styles %}{% endblock %}
+    </style>
+</head>
+<body>
+    <h1>Human feedback for Pacman</h1>
+
+    <div class="layout">
+        <!-- LEFT: instructions -->
+        <div class="col-left">
+            <div class="left-aligned-text">
+                <h2><span class="thicker-underlined-text">Instructions</span></h2><br>
+                <h3>{% block instruction_title %}To provide feedback:{% endblock %}</h3>
+                <div class="numbered-list">
+                    <ol>
+                        {% block instructions %}{% endblock %}
+                    </ol>
+                </div>
+            </div>
+        </div>
+
+        <!-- CENTER: current state -->
+        <div class="col-center">
+            <h2>Current State</h2>
+            <img src='data:image/png;base64,{{img2}}' style="width:100%; max-width:420px;" />
+            {% block center_extra %}{% endblock %}
+        </div>
+
+        <!-- RIGHT: feedback controls -->
+        <div class="col-right">
+            <h2>Feedback</h2>
+            {% block feedback_controls %}{% endblock %}
+            
+            <button class="spacebar-button" id="Spacebar">Submit</button>
+        </div>
+    </div>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

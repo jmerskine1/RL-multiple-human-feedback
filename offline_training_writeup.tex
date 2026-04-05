@@ -1,0 +1,441 @@
+% ============================================================
+%  Offline Training with Pre-Gathered Human Feedback
+%  Adaptation of main_oracle.py for post-study aggregation
+% ============================================================
+\documentclass[11pt, a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{parskip}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+
+\hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue},
+  commentstyle=\color{gray},
+  backgroundcolor=\color{gray!8},
+  frame=single,
+  breaklines=true,
+  language=Python,
+}
+
+\title{\textbf{Offline Training with Pre-Gathered Human Feedback}\\
+  \large Adapting the Oracle Training Loop for Post-Study Aggregation}
+\author{RL-Multiple-Human-Feedback Pipeline}
+\date{\today}
+
+% ============================================================
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Background and Motivation}
+\label{sec:background}
+
+The system uses \texttt{tabQL\_Cest\_vi\_t2}: tabular Q-learning augmented with
+policy shaping from human feedback, where each trainer's consistency is
+estimated via Variational Inference (VI).  During a live study, human
+participants label Pac-Man game states through a web interface; each label
+immediately updates the agent's brain stored in Google Cloud Storage (GCS).
+Because each participant runs an independent session (\texttt{nTrainer}$=1$),
+their feedback is never aggregated until after the study ends.
+
+The \emph{post-study aggregation script} (\texttt{offline\_train.py}) was
+therefore needed to:
+\begin{enumerate}
+  \item Download all participant brains from GCS.
+  \item Stack their feedback arrays into a single multi-trainer agent
+        (\texttt{nTrainer}$=N$).
+  \item Estimate per-participant consistency weights $C_e[m]$.
+  \item Train and compare: \emph{combined feedback}, \emph{individual
+        participant feedback}, and \emph{pure RL baseline}.
+\end{enumerate}
+
+Performance on the offline script was found to be substantially lower than
+on the oracle benchmark (\texttt{main\_oracle.py}), even with equivalent
+episode counts.  This document describes the root causes and the changes made
+to close that gap.
+
+% ============================================================
+\section{The Oracle Training Procedure}
+\label{sec:oracle}
+
+\texttt{main\_oracle.py} provides the performance reference.  It trains an
+agent online, generating synthetic human feedback at every environment step
+from a pre-trained greedy oracle policy.  The oracle's Q-table encodes a
+near-optimal policy; at each step it compares the oracle's preferred action
+with the agent's current state and produces a \texttt{Feedback} object
+accordingly.
+
+\subsection{Key parameters}
+\begin{table}[h!]
+\centering
+\begin{tabular}{lll}
+\toprule
+Parameter & Value & Description \\
+\midrule
+\texttt{episode\_count}       & 1000        & Training episodes per trial \\
+\texttt{max\_steps}           & 500         & Maximum steps per episode \\
+\texttt{reset\_env\_random}   & \texttt{False} & Fixed start state every episode \\
+\texttt{update\_Cest\_interval} & 5         & Re-estimate $C_e$ every $N$ episodes \\
+\texttt{active\_feedback\_type} & \texttt{count} & Active learning: label if $N_{sa} < \theta$ \\
+\texttt{feedback\_type}       & \texttt{ranked} & Feedback format \\
+\bottomrule
+\end{tabular}
+\caption{Oracle training parameters.}
+\end{table}
+
+\subsection{Per-step feedback injection}
+
+At each environment step $j$ within episode $i$, the oracle generates a
+\texttt{Feedback} object for the current trajectory:
+
+\begin{algorithm}[H]
+\caption{Oracle training loop (simplified from \texttt{main\_oracle.py})}
+\begin{algorithmic}[1]
+\For{$i = 1, \ldots, \texttt{episode\_count}$}
+  \State \Call{reset\_episode}{random=False}
+  \For{$j = 1, \ldots, \texttt{max\_steps}$}
+    \State $fb \gets$ \Call{generate\_feedback}{trajectory, oracle, active\_learning}
+    \State $a, s', r, done \gets$ \Call{trainer.step}{feedback=$fb$, update\_Cest=False}
+    \If{$done$ \textbf{or} $j = \texttt{max\_steps}$}
+      \State $fb_{\text{end}} \gets$ \Call{generate\_feedback}{\ldots, end\_of\_episode=True}
+      \State update\_Cest $\gets (i \bmod \texttt{interval} = 0)$
+      \State \Call{agent.act}{$a,\ s',\ r,\ done,\ fb_{\text{end}},\ C,$\ update\_Cest}
+      \State $\texttt{prev\_obs} \gets \texttt{None}$\quad\textit{// reset for next episode}
+      \State \textbf{break}
+    \EndIf
+  \EndFor
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+Crucially, injecting $fb$ on every step means that whenever the agent visits a
+state that the oracle would label, the feedback arrays $h^+$ and $h^-$
+\emph{accumulate} throughout training.  This has two downstream effects:
+\begin{itemize}
+  \item The digamma shaping values $\psi^r[m]$ and $\psi^w[m]$ strengthen
+        over time as more feedback accumulates.
+  \item $C_e[m]$ rises from the initial $0.5$ towards its asymptote as the EM
+        loop has more evidence to work with.
+\end{itemize}
+
+% ============================================================
+\section{Deficiencies in the Original Offline Script}
+\label{sec:deficiencies}
+
+The original \texttt{offline\_train.py} differed from the oracle procedure in
+three important ways.
+
+\subsection{Frozen feedback arrays (most significant)}
+
+The original offline script loaded $h^+$ and $h^-$ from GCS, ran one
+C-estimation pass to initialise $\psi^r$ and $\psi^w$, and then trained with
+\emph{empty} feedback at every step:
+
+\begin{lstlisting}
+empty_fb = [[] for _ in range(N)]
+while not trainer.done:
+    trainer.step(feedback=empty_fb, ...)   # hp/hm never grow
+\end{lstlisting}
+
+Because \texttt{\_collect\_feedback} is only called when
+\texttt{prev\_obs is not None} \emph{and} the feedback list is non-empty, the
+human feedback arrays remained frozen at their study-time values.  The shaping
+signal was therefore at its weakest at the start of training and never
+strengthened, unlike the oracle where feedback accumulates continuously.
+
+\subsection{Missing terminal Q-update}
+
+The original loop exited when \texttt{trainer.done} became \texttt{True}, then
+reset \texttt{prev\_obs = None} \emph{before} any explicit terminal update:
+
+\begin{lstlisting}
+while not trainer.done:
+    trainer.step(...)                   # last step sets done=True, exits loop
+trainer.agent.prev_obs = None           # blocks Q-update
+trainer.agent.act(..., update_Cest=True)  # Ce only, no Q update
+\end{lstlisting}
+
+Because the Q-update inside \texttt{tabQL\_Cest\_vi} is guarded by
+\texttt{if self.prev\_obs is not None}, the terminal transition reward was
+never propagated into $Q$.  In contrast, the oracle explicitly calls
+\texttt{agent.act()} once more after the terminal step (line 112 of
+\texttt{main\_oracle.py}), before resetting \texttt{prev\_obs}.
+
+\subsection{Random episode start states}
+
+The oracle uses \texttt{reset\_env\_random=False}, placing the agent at the
+same start position every episode.  This ensures consistent trajectories
+through the labelled region of the state space, which is critical when
+feedback coverage is sparse.  The original offline script called
+\texttt{reset\_episode()} with the default \texttt{random=True}, causing
+the agent to start from arbitrary positions and frequently miss states that
+were labelled during the study.
+
+% ============================================================
+\section{Changes Made to \texttt{offline\_train.py}}
+\label{sec:changes}
+
+Two training modes were introduced, selectable via \texttt{--training-mode}.
+
+\subsection{Replay mode (default) — mirrors \texttt{main\_oracle.py}}
+
+\paragraph{Core idea.}
+Rather than passing empty feedback every step, the frozen study arrays
+$h^+_0, h^-_0$ (a copy taken before training begins) are used as a
+\emph{lookup table}.  Whenever the agent visits a state that was labelled
+during the study, and active learning indicates that state still needs
+coverage, a \texttt{Feedback} object is synthesised from $h^+_0 - h^-_0$
+and injected — identically to how the oracle would inject feedback.
+
+\paragraph{Active-learning gate.}
+The count-based active-learning criterion from \texttt{main\_oracle.py} is
+preserved: feedback is only injected for state $s$ if
+$N_{sa}[s, a] < \theta_{\text{AL}}$ for any action $a$.  This limits how many
+times any state receives additional label mass, preventing the human signal
+from being inflated relative to the oracle's single-label-per-visit
+behaviour.  The default threshold $\theta_{\text{AL}} = 3$ matches the
+oracle's active-learning configuration.
+
+\paragraph{Feedback construction.}
+For each trainer $m$ and current state $s$, the net signal is:
+\begin{equation}
+  \Delta^m_a = h^{+,m}_{0,s,a} - h^{-,m}_{0,s,a}, \quad a \in \mathcal{A}
+\end{equation}
+Actions with $\Delta^m_a > 0$ are placed in \texttt{good\_actions}; those
+with $\Delta^m_a < 0$ in \texttt{bad\_actions}.  This is analogous to the
+oracle comparing its Q-table against the agent's and labelling accordingly.
+The \texttt{Feedback} object is passed to \texttt{trainer.step()}, which
+calls \texttt{\_collect\_feedback(fb)}, incrementing the live $h^+$ and
+$h^-$ arrays.
+
+\paragraph{Terminal Q-update.}
+After the episode-ending step the script now calls \texttt{agent.act()}
+explicitly — before resetting \texttt{prev\_obs} — so that the terminal
+reward is propagated into $Q$:
+
+\begin{lstlisting}
+if done or steps >= max_steps:
+    update_Cest = ((ep + 1) % update_Cest_interval == 0)
+    trainer.agent.act(action_idx, ob, rw, done,
+                      fb, 0.5, update_Cest=update_Cest)
+    trainer.agent.prev_obs = None   # reset AFTER Q-update
+    break
+\end{lstlisting}
+
+\paragraph{Fixed start state.}
+\texttt{trainer.reset\_episode(random=False)} is used throughout the replay
+training loop, matching the oracle's \texttt{reset\_env\_random=False}.
+
+\paragraph{C-estimation frequency.}
+$C_e$ is re-estimated every \texttt{--cest-interval} episodes (default 5),
+matching the oracle's \texttt{update\_Cest\_interval=5}.
+
+The full replay loop is given in Algorithm~\ref{alg:replay}.
+
+\begin{algorithm}[H]
+\caption{Replay training loop (\texttt{train\_with\_human\_replay})}
+\label{alg:replay}
+\begin{algorithmic}[1]
+\Require Frozen study arrays $h^+_0, h^-_0$; trainer with loaded $h^+, h^-$
+\For{$ep = 1, \ldots, \texttt{n\_episodes}$}
+  \State \Call{reset\_episode}{random=\texttt{False}}
+  \For{$j = 1, \ldots, \texttt{max\_steps}$}
+    \State $s \gets \texttt{trainer.ob}$
+    \If{$\min_a N_{sa}[s,a] < \theta_{\text{AL}}$
+        \textbf{and} $\sum_{a,m} (h^{+,m}_{0,s,a} + h^{-,m}_{0,s,a}) > 0$}
+      \State Build $fb$ from $\{h^+_{0,s,:} - h^-_{0,s,:}\}$ per trainer
+    \Else
+      \State $fb \gets [[\,]\,]_{m=1}^{N}$
+    \EndIf
+    \State $a, s', r, done \gets$ \Call{trainer.step}{feedback=$fb$, update\_Cest=False}
+    \If{$done$ \textbf{or} $j = \texttt{max\_steps}$}
+      \State $\text{updateCe} \gets (ep \bmod \texttt{interval} = 0)$
+      \State \Call{agent.act}{$a,\ s',\ r,\ done,\ fb,\ 0.5,$\ updateCe}
+      \State $\texttt{prev\_obs} \gets \texttt{None}$
+      \State \textbf{break}
+    \EndIf
+  \EndFor
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Static mode — original behaviour with bug fix}
+
+The static mode retains the original approach (frozen $h^+/h^-$, fixed psi
+values) but incorporates the terminal Q-update fix and the
+\texttt{update\_Cest\_interval} parameter.  It is available via
+\texttt{--training-mode static} and is useful as a controlled comparison to
+quantify the benefit of the replay mechanism independently of other changes.
+
+% ============================================================
+\section{Algorithmic Detail: Policy Shaping}
+\label{sec:policy_shaping}
+
+For completeness, the policy shaping mechanism in \texttt{tabQL\_Cest\_vi\_t2}
+(type~2, ``only one optimal action'') is reproduced here.  At each step the
+Boltzmann log-probability over actions is modified by the accumulated human
+feedback:
+
+\begin{equation}
+  \ell_a \;=\; \frac{Q(s,a)}{\tau}
+  \;+\; \sum_{m=1}^{N}
+    \Bigl[
+      h^{+,m}_{s,a}\,\psi^r_m
+      + h^{-,m}_{s,a}\,\psi^w_m
+      - h^{-,m}_{s,a}\,\psi^r_m
+      - h^{+,m}_{s,a}\,\psi^w_m
+    \Bigr]
+\end{equation}
+
+where $\tau = 1.5$ is the temperature constant, and the digamma shaping
+values for trainer $m$ are:
+
+\begin{align}
+  \psi^r_m &= \psi\!\left(\textstyle\sum h^r_m + \alpha_m\right)
+             - \psi\!\left(\textstyle\sum h^r_m + \sum h^w_m + \alpha_m + \beta_m\right)
+  \\[4pt]
+  \psi^w_m &= \psi\!\left(\textstyle\sum h^w_m + \beta_m\right)
+             - \psi\!\left(\textstyle\sum h^r_m + \sum h^w_m + \alpha_m + \beta_m\right)
+\end{align}
+
+Here $\psi(\cdot)$ is the digamma function, $\alpha_m, \beta_m$ are the Beta
+prior parameters (\texttt{prior\_alpha}, \texttt{prior\_beta}; default $1.0$
+for a flat prior), and $\sum h^r_m,\,\sum h^w_m$ are the running totals
+updated by the EM loop during C-estimation.
+
+The key consequence for the two training modes is:
+\begin{itemize}
+  \item \textbf{Static mode}: $h^+, h^-$ are frozen so $\psi^r_m, \psi^w_m$
+        change only when C-estimation runs, driven solely by the Q-table
+        evolving relative to fixed feedback counts.
+  \item \textbf{Replay mode}: $h^+, h^-$ grow each time the agent revisits a
+        labelled state and the active-learning gate passes.  Both $\psi$ values
+        therefore strengthen monotonically, producing an increasingly confident
+        shaping signal as training progresses — precisely mirroring the
+        oracle's behaviour.
+\end{itemize}
+
+% ============================================================
+\section{Differences Remaining vs.\ the Oracle}
+\label{sec:remaining_differences}
+
+Even with replay mode, one structural difference from the oracle remains:
+
+\paragraph{Fixed vs.\ continuously generated labels.}
+The oracle generates a fresh label for \emph{every} state it visits, based on
+its current Q-table vs.\ the agent's Q-table.  The replay script can only
+label states that were seen during the study.  States never labelled by any
+participant contribute no shaping signal regardless of the active-learning
+threshold.  In practice this means:
+\begin{itemize}
+  \item Coverage is bounded by what participants happened to see.
+  \item States visited during training but absent from $h^+_0/h^-_0$ receive
+        no reinforcement from human feedback, so Q-learning alone drives
+        behaviour there.
+\end{itemize}
+This is an inherent limitation of offline aggregation and motivates ensuring
+broad state coverage during the study (e.g.\ larger bundle sizes, more
+participants, or entropy-based active learning during data collection).
+
+% ============================================================
+\section{New Command-Line Interface}
+\label{sec:cli}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{llp{7.5cm}}
+\toprule
+Flag & Default & Description \\
+\midrule
+\texttt{--training-mode} & \texttt{replay}
+  & \texttt{replay}: inject labels at each step (oracle-equivalent).
+    \texttt{static}: frozen $h^+/h^-$ shaping prior. \\
+\texttt{--al-threshold}  & \texttt{3.0}
+  & Active-learning visit count threshold; feedback injected while
+    $N_{sa} < \theta$. \\
+\texttt{--cest-interval} & \texttt{5}
+  & Re-estimate $C_e$ every $N$ episodes (matches oracle default). \\
+\texttt{--n-episodes}    & \texttt{100}
+  & Training episodes per condition.  Recommend $\geq 1000$ for
+    convergence at oracle scale. \\
+\texttt{--q-init}        & \texttt{zeros}
+  & \texttt{zeros}: fair comparison baseline.
+    \texttt{average}: warm-start from participants' Q-tables. \\
+\texttt{--sessions}      & all
+  & Participant codes to include; omit to use all brains in bucket. \\
+\bottomrule
+\end{tabular}
+\caption{Updated \texttt{offline\_train.py} CLI flags.}
+\end{table}
+
+\paragraph{Recommended invocation (oracle-equivalent).}
+\begin{lstlisting}[language=bash]
+python offline_train.py \
+    --bucket jerskine_human_feedback \
+    --sessions P001 P002 P003 \
+    --n-episodes 1000 \
+    --training-mode replay          # default, shown for clarity
+\end{lstlisting}
+
+\paragraph{Comparison run.}
+\begin{lstlisting}[language=bash]
+# Replay mode
+python offline_train.py ... --training-mode replay --save results_replay.pkl
+# Static mode (original behaviour, with terminal bug fix)
+python offline_train.py ... --training-mode static --save results_static.pkl
+# Plot both
+python analyse_results.py results_replay.pkl --save plot_replay.png
+python analyse_results.py results_static.pkl --save plot_static.png
+\end{lstlisting}
+
+% ============================================================
+\section{Summary of Changes}
+\label{sec:summary}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{p{4cm} p{4.5cm} p{4.5cm}}
+\toprule
+Aspect & Before & After (replay mode) \\
+\midrule
+Feedback during training
+  & Empty \texttt{[[]}]} at every step; $h^+/h^-$ frozen
+  & \texttt{Feedback} object injected for labelled states passing
+    active-learning gate; $h^+/h^-$ accumulate \\[4pt]
+Terminal Q-update
+  & \texttt{prev\_obs=None} before terminal \texttt{act()};
+    terminal reward never hits $Q$
+  & Explicit \texttt{act(action, s', r, done=True, ...)} before
+    \texttt{prev\_obs=None} \\[4pt]
+Episode start state
+  & \texttt{random=True} (arbitrary)
+  & \texttt{random=False} (fixed, matches oracle) \\[4pt]
+$C_e$ update frequency
+  & Every episode
+  & Every \texttt{--cest-interval} episodes (default 5) \\[4pt]
+$\psi^r / \psi^w$ over training
+  & Constant after initial C-estimation
+  & Grow as $h^+/h^-$ accumulate \\[4pt]
+Episode count
+  & Default 100
+  & Recommend $\geq 1000$ \\
+\bottomrule
+\end{tabular}
+\caption{Comparison of original offline training vs.\ updated replay mode.}
+\end{table}
+
+\end{document}

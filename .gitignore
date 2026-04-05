@@ -1,7 +1,43 @@
-# Ignore config files
-config.*
-
-*.pyc
-
-# Ignore Python bytecode cache
+# ==========================================
+# Python & Environment
+# ==========================================
+# Byte-compiled / optimized / DLL files
 __pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments (good practice to include just in case you use one later)
+venv/
+env/
+.venv/
+
+# ==========================================
+# Project Specific Auto-generated / Data Files
+# ==========================================
+# SQLite databases (Never commit local databases!)
+*.sqlite
+*.sqlite3
+*.db
+result_database.sqlite
+
+# Reinforcement Learning outputs and generated data
+learnedStates/
+results/
+
+# ==========================================
+# Secrets — never commit
+# ==========================================
+secrets.json
+
+# ==========================================
+# Miscellaneous & Hidden
+# ==========================================
+# Old backups and temp files
+old_files/
+
+# Local IDE/Assistant config
+.claude/
+
+# OS generated files (macOS/Windows)
+.DS_Store
+Thumbs.db

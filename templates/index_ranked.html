@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+
+{% block title %}Human Feedback for PACMAN – Ranked{% endblock %}
+
+{% block extra_styles %}
+    .arrow_button {
+        width: 60px;
+        height: 60px;
+        font-size: 20px;
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        user-select: none;
+        -webkit-user-select: none;
+    }
+    .arrow_button .rank-badge {
+        font-size: 8px;
+        line-height: 1;
+        margin-top: 2px;
+        color: inherit;
+    }
+    .arrow_button.rank-1 { background-color: #00C851; border-color: #00C851; color: #000; }
+    .arrow_button.rank-2 { background-color: #ffbb33; border-color: #ffbb33; color: #000; }
+    .arrow_button.rank-3 { background-color: #ff8800; border-color: #ff8800; color: #000; }
+    .arrow_button.rank-4 { background-color: #ff4444; border-color: #ff4444; color: #fff; }
+{% endblock %}
+
+{% block instruction_title %}To rank actions for our RL Pacman agent:{% endblock %}
+
+{% block instructions %}
+    <li>Look at the current state. Faded sprites show where Pacman and the ghost were in the last two steps.</li><br>
+    <li>Click each arrow (or press each arrow key) to rank the four directions from <strong style="color:#00C851">best</strong> (1st click) to <strong style="color:#ff4444">worst</strong> (4th click). Button colours update to reflect your ranking.</li><br>
+    <li>Clicking an already-ranked button moves it to the end of your ranking.</li><br>
+    <li>Once happy with your ranking, click 'Submit' or press SPACE. This advances to the next time step.</li><br>
+{% endblock %}
+
+{% block feedback_controls %}
+    <div class="key-grid">
+        <div></div>
+        <button type="button" class="arrow_button {{ 'disabled' if not valid_moves[0] }}" id="ArrowUp">↑<span class="rank-badge" id="badge-ArrowUp"></span></button>
+        <div></div>
+        <button type="button" class="arrow_button {{ 'disabled' if not valid_moves[3] }}" id="ArrowLeft">←<span class="rank-badge" id="badge-ArrowLeft"></span></button>
+        <button type="button" class="arrow_button {{ 'disabled' if not valid_moves[1] }}" id="ArrowDown">↓<span class="rank-badge" id="badge-ArrowDown"></span></button>
+        <button type="button" class="arrow_button {{ 'disabled' if not valid_moves[2] }}" id="ArrowRight">→<span class="rank-badge" id="badge-ArrowRight"></span></button>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const ARROW_IDS    = ['ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'];
+        const RANK_CLASSES = ['rank-1', 'rank-2', 'rank-3', 'rank-4'];
+        const RANK_LABELS  = ['1st', '2nd', '3rd', '4th'];
+        const arrowToDir   = {
+            'ArrowUp':    'arrowup',
+            'ArrowLeft':  'arrowleft',
+            'ArrowDown':  'arrowdown',
+            'ArrowRight': 'arrowright',
+        };
+
+        let rankOrder = [];
+
+        function isButtonDisabled(id) {
+            const btn = document.getElementById(id);
+            return btn && btn.classList.contains('disabled');
+        }
+
+        function assignRank(id) {
+            if (isButtonDisabled(id)) return;
+            const existing = rankOrder.indexOf(id);
+            if (existing !== -1) rankOrder.splice(existing, 1);
+            rankOrder.push(id);
+            updateButtons();
+        }
+
+        function updateButtons() {
+            ARROW_IDS.forEach(id => {
+                const btn   = document.getElementById(id);
+                const badge = document.getElementById('badge-' + id);
+                btn.classList.remove(...RANK_CLASSES);
+                const rank = rankOrder.indexOf(id);
+                if (rank !== -1) {
+                    btn.classList.add(RANK_CLASSES[rank]);
+                    badge.textContent = RANK_LABELS[rank];
+                } else {
+                    badge.textContent = '';
+                }
+            });
+        }
+
+        ARROW_IDS.forEach(id => {
+            document.getElementById(id).addEventListener('click', () => assignRank(id));
+        });
+
+        document.addEventListener('keydown', function (event) {
+            if (ARROW_IDS.includes(event.key)) {
+                if (isButtonDisabled(event.key)) return;
+                event.preventDefault();
+                assignRank(event.key);
+            }
+            if (event.key === ' ' || event.keyCode === 32) {
+                event.preventDefault();
+                submitRanking();
+            }
+        });
+
+        document.getElementById('Spacebar').addEventListener('click', function () {
+            submitRanking();
+        });
+
+        function submitRanking() {
+            const dirOrder = rankOrder.map(id => arrowToDir[id]);
+            fetch('/submit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ranking: dirOrder })
+            })
+            .then(response => response.text())
+            .then(html => { document.open(); document.write(html); document.close(); })
+            .catch(error => console.error('Submit error:', error));
+        }
+    });
+</script>
+{% endblock %}
